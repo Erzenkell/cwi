@@ -1,11 +1,38 @@
+# Wordsinvest CRM
 
-  # Untitled
+Base CRM avec:
+- frontend React + TSX + Vite
+- backend Node.js + Express
+- PostgreSQL via Docker Compose
+- authentification JWT
+- vues salariés et admin prêtes
 
-  This is a code bundle for Untitled. The original project is available at https://www.figma.com/design/TB1FrRMTl1MNRxOPBDTvkK/Untitled.
+## Frontend
+```bash
+npm install
+npm run dev
+```
 
-  ## Running the code
+## Base de données
+```bash
+docker compose up -d
+```
 
-  Run `npm i` to install the dependencies.
+## Backend
+```bash
+cd server
+cp .env.example .env
+npm install
+npm run seed
+npm run dev
+```
 
-  Run `npm run dev` to start the development server.
-  
+## Comptes démo
+- `employee@crm.local` / `password123`
+- `admin@crm.local` / `password123`
+
+## Endpoints
+- `GET /api/health`
+- `POST /api/auth/login`
+- `GET /api/navigation`
+- `GET /api/seed-data`

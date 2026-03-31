@@ -86,62 +86,38 @@ const topClients = [
 
 function LoginCard({ onLogin }: { onLogin: (role: Role) => void }) {
   return (
-    <div className="w-full max-w-5xl grid gap-8 rounded-[32px] border border-white/10 bg-white/[0.04] p-4 shadow-2xl shadow-black/20 backdrop-blur md:grid-cols-[1.2fr_0.8fr] md:p-8">
-      <div className="rounded-[28px] bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-950 p-8 text-white">
-        <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/10 px-3 py-1 text-sm">
-          <LayoutDashboard className="size-4" /> CRM React + Node
-        </div>
-        <h1 className="mt-6 text-4xl font-semibold leading-tight">Base CRM moderne pour vos équipes salariés et admin.</h1>
-        <p className="mt-4 max-w-xl text-sm text-slate-300 md:text-base">
-          Frontend React TSX, backend Node.js, base PostgreSQL via Docker, authentification JWT et structure prête pour évoluer.
-        </p>
-        <div className="mt-8 grid gap-4 sm:grid-cols-3">
-          {[
-            ['8', 'vues prêtes'],
-            ['JWT', 'auth backend'],
-            ['Postgres', 'db dockerisée'],
-          ].map(([value, label]) => (
-            <div key={label} className="rounded-2xl border border-white/10 bg-white/10 p-4">
-              <div className="text-2xl font-semibold">{value}</div>
-              <div className="text-sm text-slate-300">{label}</div>
-            </div>
-          ))}
-        </div>
+    <div className="absolute left-1/2 top-1/2 flex flex-col w-1/3 -translate-x-1/2 -translate-y-1/2 justify-between rounded-[28px] bg-slate-950/70 p-8 text-white ring-1 ring-white/10">
+      <div>
+        <h2 className="text-2xl font-semibold">Connexion démo</h2>
+        <p className="mt-2 text-sm text-slate-400">Choisissez un rôle pour ouvrir l'interface correspondante.</p>
       </div>
 
-      <div className="flex flex-col justify-between rounded-[28px] bg-slate-950/70 p-8 text-white ring-1 ring-white/10">
-        <div>
-          <h2 className="text-2xl font-semibold">Connexion démo</h2>
-          <p className="mt-2 text-sm text-slate-400">Choisissez un rôle pour ouvrir l'interface correspondante.</p>
-        </div>
+      <div className="mt-8 space-y-4">
+        <button
+          onClick={() => onLogin('employee')}
+          className="flex w-full items-center justify-between rounded-2xl border border-slate-700 bg-slate-900 px-5 py-4 text-left transition hover:border-indigo-400 hover:bg-slate-800"
+        >
+          <div>
+            <div className="font-medium">Connexion salarié</div>
+            <div className="text-sm text-slate-400">Comptes, contacts, opportunités, sous-traitants</div>
+          </div>
+          <Users className="size-5" />
+        </button>
 
-        <div className="mt-8 space-y-4">
-          <button
-            onClick={() => onLogin('employee')}
-            className="flex w-full items-center justify-between rounded-2xl border border-slate-700 bg-slate-900 px-5 py-4 text-left transition hover:border-indigo-400 hover:bg-slate-800"
-          >
-            <div>
-              <div className="font-medium">Connexion salarié</div>
-              <div className="text-sm text-slate-400">Comptes, contacts, opportunités, sous-traitants</div>
-            </div>
-            <Users className="size-5" />
-          </button>
+        <button
+          onClick={() => onLogin('admin')}
+          className="flex w-full items-center justify-between rounded-2xl border border-slate-700 bg-slate-900 px-5 py-4 text-left transition hover:border-indigo-400 hover:bg-slate-800"
+        >
+          <div>
+            <div className="font-medium">Connexion admin</div>
+            <div className="text-sm text-slate-400">Pistes, factures, synthèse, meilleurs clients</div>
+          </div>
+          <Shield className="size-5" />
+        </button>
+      </div>
 
-          <button
-            onClick={() => onLogin('admin')}
-            className="flex w-full items-center justify-between rounded-2xl border border-slate-700 bg-slate-900 px-5 py-4 text-left transition hover:border-indigo-400 hover:bg-slate-800"
-          >
-            <div>
-              <div className="font-medium">Connexion admin</div>
-              <div className="text-sm text-slate-400">Pistes, factures, synthèse, meilleurs clients</div>
-            </div>
-            <Shield className="size-5" />
-          </button>
-        </div>
-
-        <div className="mt-6 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-4 text-sm text-emerald-200">
-          Comptes démo backend: employee@crm.local / admin@crm.local — mot de passe: password123
-        </div>
+      <div className="mt-6 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-4 text-sm text-emerald-200">
+        Comptes démo backend: employee@crm.local / admin@crm.local — mot de passe: password123
       </div>
     </div>
   );

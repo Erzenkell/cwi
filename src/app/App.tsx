@@ -18,7 +18,7 @@ import {
 
 type Role = 'employee' | 'admin';
 type EmployeeTab = 'COMPTES' | 'CONTACTS' | 'OPPORTUNITÉS' | 'SOUS-TRAITANT';
-type AdminTab = 'PISTES' | 'FACTURES' | 'SYNTHÈSE' | 'MEILLEURS CLIENTS';
+type AdminTab = 'PISTES' | 'FACTURES' | 'SYNTHÈSE' | 'MEILLEURS CLIENTS' | 'COMPTES' | 'CONTACTS' | 'OPPORTUNITÉS' | 'SOUS-TRAITANT';
 type Tab = EmployeeTab | AdminTab;
 
 const employeeTabs: { label: EmployeeTab; icon: ComponentType<any> }[] = [
@@ -33,6 +33,10 @@ const adminTabs: { label: AdminTab; icon: ComponentType<any> }[] = [
   { label: 'FACTURES', icon: FileText },
   { label: 'SYNTHÈSE', icon: ChartNoAxesCombined },
   { label: 'MEILLEURS CLIENTS', icon: TrendingUp },
+  { label: 'COMPTES', icon: Building2 },
+  { label: 'CONTACTS', icon: Users },
+  { label: 'OPPORTUNITÉS', icon: Target },
+  { label: 'SOUS-TRAITANT', icon: Handshake },
 ];
 
 const accounts = [
@@ -95,7 +99,7 @@ function LoginCard({ onLogin }: { onLogin: (role: Role) => void }) {
       <div className="mt-8 space-y-4">
         <button
           onClick={() => onLogin('employee')}
-          className="flex w-full items-center justify-between rounded-2xl border border-slate-700 bg-slate-900 px-5 py-4 text-left transition hover:border-indigo-400 hover:bg-slate-800"
+          className="flex w-full items-center justify-between rounded-2xl border border-slate-700 bg-slate-900 px-5 py-4 text-left transition hover:border-indigo-400 hover:bg-slate-800 cursor-pointer"
         >
           <div>
             <div className="font-medium">Connexion salarié</div>
@@ -106,7 +110,7 @@ function LoginCard({ onLogin }: { onLogin: (role: Role) => void }) {
 
         <button
           onClick={() => onLogin('admin')}
-          className="flex w-full items-center justify-between rounded-2xl border border-slate-700 bg-slate-900 px-5 py-4 text-left transition hover:border-indigo-400 hover:bg-slate-800"
+          className="flex w-full items-center justify-between rounded-2xl border border-slate-700 bg-slate-900 px-5 py-4 text-left transition hover:border-indigo-400 hover:bg-slate-800 cursor-pointer"
         >
           <div>
             <div className="font-medium">Connexion admin</div>
@@ -220,7 +224,7 @@ function Dashboard({ role, onLogout }: { role: Role; onLogout: () => void }) {
                 key={tab.label}
                 onClick={() => setActiveTab(tab.label)}
                 className={`flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left transition ${
-                  active ? 'bg-white text-slate-950' : 'text-slate-300 hover:bg-white/10 hover:text-white'
+                  active ? 'bg-white text-slate-950' : 'text-slate-300 hover:bg-white/10 hover:text-white cursor-pointer'
                 }`}
               >
                 <Icon className="size-4" />
@@ -239,12 +243,8 @@ function Dashboard({ role, onLogout }: { role: Role; onLogout: () => void }) {
               <h1 className="text-2xl font-semibold">{activeTab}</h1>
             </div>
             <div className="flex items-center gap-3">
-              <div className="hidden items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2 md:flex">
-                <Search className="size-4 text-slate-400" />
-                <span className="text-sm text-slate-400">Rechercher...</span>
-              </div>
               <button className="rounded-2xl border border-slate-200 bg-white p-3"><Bell className="size-4" /></button>
-              <button onClick={onLogout} className="flex items-center gap-2 rounded-2xl bg-slate-950 px-4 py-3 text-sm font-medium text-white">
+              <button onClick={onLogout} className="flex items-center gap-2 rounded-2xl bg-slate-950 px-4 py-3 text-sm font-medium text-white cursor-pointer">
                 <LogOut className="size-4" /> Déconnexion
               </button>
             </div>

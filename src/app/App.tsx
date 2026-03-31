@@ -1,4 +1,4 @@
-import { useMemo, useState, type ComponentType } from 'react';
+import { useEffect, useMemo, useState, type ComponentType, type ReactNode } from 'react';
 import {
   Bell,
   BriefcaseBusiness,
@@ -13,13 +13,30 @@ import {
   Target,
   TrendingUp,
   Users,
-  Wallet,
+  UserCog,
+  Layers3,
+  RefreshCw,
 } from 'lucide-react';
 
 type Role = 'employee' | 'admin';
 type EmployeeTab = 'COMPTES' | 'CONTACTS' | 'OPPORTUNITÉS' | 'SOUS-TRAITANT';
-type AdminTab = 'PISTES' | 'FACTURES' | 'SYNTHÈSE' | 'MEILLEURS CLIENTS' | 'COMPTES' | 'CONTACTS' | 'OPPORTUNITÉS' | 'SOUS-TRAITANT';
+type AdminTab = 'PISTES' | 'FACTURES' | 'SYNTHÈSE' | 'MEILLEURS CLIENTS' | 'UTILISATEURS' | 'GROUPES';
 type Tab = EmployeeTab | AdminTab;
+
+type AuthResponse = {
+  token: string;
+  user: {
+    id: number;
+    email: string;
+    role: Role;
+    fullName: string;
+  };
+};
+
+type DashboardStats = { label: string; value: string }[];
+type EntityPayload = Record<string, Array<Record<string, string | number | null>>>;
+
+const API_URL = (import.meta as any).env?.VITE_API_URL || 'http://localhost:4000/api';
 
 const employeeTabs: { label: EmployeeTab; icon: ComponentType<any> }[] = [
   { label: 'COMPTES', icon: Building2 },
@@ -33,101 +50,175 @@ const adminTabs: { label: AdminTab; icon: ComponentType<any> }[] = [
   { label: 'FACTURES', icon: FileText },
   { label: 'SYNTHÈSE', icon: ChartNoAxesCombined },
   { label: 'MEILLEURS CLIENTS', icon: TrendingUp },
-  { label: 'COMPTES', icon: Building2 },
-  { label: 'CONTACTS', icon: Users },
-  { label: 'OPPORTUNITÉS', icon: Target },
-  { label: 'SOUS-TRAITANT', icon: Handshake },
+  { label: 'UTILISATEURS', icon: UserCog },
+  { label: 'GROUPES', icon: Layers3 },
 ];
 
-const accounts = [
-  { name: 'Wordsinvest Capital', sector: 'Finance', owner: 'Sofia', status: 'Actif', revenue: '€320k' },
-  { name: 'Nova Industrie', sector: 'Industrie', owner: 'Yanis', status: 'À relancer', revenue: '€185k' },
-  { name: 'Aster Conseil', sector: 'Conseil', owner: 'Lina', status: 'Fidèle', revenue: '€96k' },
-];
+const tabToKey: Record<Tab, string> = {
+  COMPTES: 'accounts',
+  CONTACTS: 'contacts',
+  'OPPORTUNITÉS': 'opportunities',
+  'SOUS-TRAITANT': 'subcontractors',
+  PISTES: 'leads',
+  FACTURES: 'invoices',
+  SYNTHÈSE: 'summary',
+  'MEILLEURS CLIENTS': 'topClients',
+  UTILISATEURS: 'users',
+  GROUPES: 'groups',
+};
 
-const contacts = [
-  { name: 'Camille Durand', company: 'Wordsinvest Capital', email: 'camille@wordsinvest.test', role: 'CEO' },
-  { name: 'Romain Perez', company: 'Nova Industrie', email: 'romain@nova.test', role: 'Acheteur' },
-  { name: 'Inès Martin', company: 'Aster Conseil', email: 'ines@aster.test', role: 'CFO' },
-];
+const tabMeta: Record<Tab, { title: string; subtitle: string; columns: string[] }> = {
+  COMPTES: {
+    title: 'Comptes',
+    subtitle: 'Référentiel des entreprises clientes et partenaires.',
+    columns: ['Nom', 'Secteur', 'Responsable', 'Statut', 'CA'],
+  },
+  CONTACTS: {
+    title: 'Contacts',
+    subtitle: 'Interlocuteurs clés rattachés aux comptes.',
+    columns: ['Nom', 'Société', 'Email', 'Fonction'],
+  },
+  'OPPORTUNITÉS': {
+    title: 'Opportunités',
+    subtitle: 'Pipeline commercial et avancement des affaires.',
+    columns: ['Affaire', 'Valeur', 'Étape', 'Probabilité'],
+  },
+  'SOUS-TRAITANT': {
+    title: 'Sous-traitants',
+    subtitle: 'Partenaires externes, notes et disponibilité.',
+    columns: ['Nom', 'Spécialité', 'Note', 'Disponibilité'],
+  },
+  PISTES: {
+    title: 'Pistes',
+    subtitle: 'Prospects entrants, score et attribution commerciale.',
+    columns: ['Société', 'Source', 'Score', 'Assigné à'],
+  },
+  FACTURES: {
+    title: 'Factures',
+    subtitle: 'Suivi de facturation, état d’émission et encaissement.',
+    columns: ['Référence', 'Client', 'Montant', 'Statut'],
+  },
+  SYNTHÈSE: {
+    title: 'Synthèse',
+    subtitle: 'Vue consolidée des indicateurs utiles au pilotage.',
+    columns: ['Indicateur', 'Valeur'],
+  },
+  'MEILLEURS CLIENTS': {
+    title: 'Meilleurs clients',
+    subtitle: 'Classement des comptes par chiffre d’affaires.',
+    columns: ['Nom', 'CA', 'Santé'],
+  },
+  UTILISATEURS: {
+    title: 'Utilisateurs',
+    subtitle: 'Administration des comptes d’accès et des rôles.',
+    columns: ['Nom', 'Email', 'Rôle', 'Groupe'],
+  },
+  GROUPES: {
+    title: 'Groupes',
+    subtitle: 'Segmentation interne pour pilotage et permissions.',
+    columns: ['Nom', 'Description', 'Membres'],
+  },
+};
 
-const opportunities = [
-  { label: 'Refonte CRM Europe', value: '€42k', stage: 'Proposition', probability: '75%' },
-  { label: 'Migration data room', value: '€28k', stage: 'Négociation', probability: '60%' },
-  { label: 'Audit partenaires', value: '€18k', stage: 'Découverte', probability: '35%' },
-];
+async function api<T>(path: string, options: RequestInit = {}, token?: string): Promise<T> {
+  const response = await fetch(`${API_URL}${path}`, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(options.headers || {}),
+    },
+  });
 
-const subcontractors = [
-  { name: 'Atlas Tech', specialty: 'Développement', rating: '4.8/5', availability: 'Disponible' },
-  { name: 'Blue Ledger', specialty: 'Comptabilité', rating: '4.4/5', availability: 'Sous 2 semaines' },
-  { name: 'North Ops', specialty: 'Support', rating: '4.6/5', availability: 'Disponible' },
-];
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ message: 'Erreur réseau' }));
+    throw new Error(error.message || 'Erreur réseau');
+  }
 
-const leads = [
-  { company: 'Meridian Group', source: 'LinkedIn', score: 82, assignedTo: 'Sofia' },
-  { company: 'Hexa Patrimoine', source: 'Salon', score: 76, assignedTo: 'Yanis' },
-  { company: 'Delta One', source: 'Referral', score: 69, assignedTo: 'Lina' },
-];
+  return response.json() as Promise<T>;
+}
 
-const invoices = [
-  { ref: 'INV-2026-001', client: 'Wordsinvest Capital', amount: '€12,500', status: 'Payée' },
-  { ref: 'INV-2026-002', client: 'Nova Industrie', amount: '€8,900', status: 'En attente' },
-  { ref: 'INV-2026-003', client: 'Aster Conseil', amount: '€6,100', status: 'Brouillon' },
-];
+function formatValue(value: string | number | null | undefined) {
+  if (value === null || value === undefined || value === '') return '—';
+  if (typeof value === 'number') return Number.isInteger(value) ? String(value) : String(value);
+  return value;
+}
 
-const summaryStats = [
-  { label: 'CA mensuel', value: '€128k' },
-  { label: 'Taux de conversion', value: '31%' },
-  { label: 'Dossiers actifs', value: '48' },
-  { label: 'Encours factures', value: '€27k' },
-];
+function LoginCard({ onLogin, loading, error }: { onLogin: (email: string, password: string) => void; loading: boolean; error: string | null }) {
+  const [email, setEmail] = useState('employee@crm.local');
+  const [password, setPassword] = useState('password123');
 
-const topClients = [
-  { name: 'Wordsinvest Capital', turnover: '€320k', health: 'Excellent' },
-  { name: 'Nova Industrie', turnover: '€185k', health: 'Stable' },
-  { name: 'Aster Conseil', turnover: '€96k', health: 'Croissance' },
-];
-
-function LoginCard({ onLogin }: { onLogin: (role: Role) => void }) {
   return (
-    <div className="absolute left-1/2 top-1/2 flex flex-col w-1/3 -translate-x-1/2 -translate-y-1/2 justify-between rounded-[28px] bg-slate-950/70 p-8 text-white ring-1 ring-white/10">
-      <div>
-        <h2 className="text-2xl font-semibold">Connexion démo</h2>
-        <p className="mt-2 text-sm text-slate-400">Choisissez un rôle pour ouvrir l'interface correspondante.</p>
+    <div className="w-full max-w-5xl grid gap-8 rounded-[32px] border border-white/10 bg-white/[0.04] p-4 shadow-2xl shadow-black/20 backdrop-blur md:grid-cols-[1.2fr_0.8fr] md:p-8">
+      <div className="rounded-[28px] bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-950 p-8 text-white">
+        <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/10 px-3 py-1 text-sm">
+          <LayoutDashboard className="size-4" /> CRM React + Node
+        </div>
+        <h1 className="mt-6 text-4xl font-semibold leading-tight">CRM aligné sur vos specs métier.</h1>
+        <p className="mt-4 max-w-xl text-sm text-slate-300 md:text-base">
+          La base reprend maintenant les domaines visibles dans vos specs: comptes, contacts, opportunités, pistes, factures,
+          sous-traitants, synthèse, meilleurs clients, utilisateurs et groupes.
+        </p>
+        <div className="mt-8 grid gap-4 sm:grid-cols-3">
+          {[
+            ['10', 'modules'],
+            ['JWT', 'auth backend'],
+            ['Postgres', 'db dockerisée'],
+          ].map(([value, label]) => (
+            <div key={label} className="rounded-2xl border border-white/10 bg-white/10 p-4">
+              <div className="text-2xl font-semibold">{value}</div>
+              <div className="text-sm text-slate-300">{label}</div>
+            </div>
+          ))}
+        </div>
       </div>
 
-      <div className="mt-8 space-y-4">
-        <button
-          onClick={() => onLogin('employee')}
-          className="flex w-full items-center justify-between rounded-2xl border border-slate-700 bg-slate-900 px-5 py-4 text-left transition hover:border-indigo-400 hover:bg-slate-800 cursor-pointer"
-        >
-          <div>
-            <div className="font-medium">Connexion salarié</div>
-            <div className="text-sm text-slate-400">Comptes, contacts, opportunités, sous-traitants</div>
-          </div>
-          <Users className="size-5" />
-        </button>
+      <div className="flex flex-col justify-between rounded-[28px] bg-slate-950/70 p-8 text-white ring-1 ring-white/10">
+        <div>
+          <h2 className="text-2xl font-semibold">Connexion</h2>
+          <p className="mt-2 text-sm text-slate-400">Le frontend se connecte au backend Node et charge les données réelles.</p>
+        </div>
 
-        <button
-          onClick={() => onLogin('admin')}
-          className="flex w-full items-center justify-between rounded-2xl border border-slate-700 bg-slate-900 px-5 py-4 text-left transition hover:border-indigo-400 hover:bg-slate-800 cursor-pointer"
-        >
+        <div className="mt-8 space-y-4">
           <div>
-            <div className="font-medium">Connexion admin</div>
-            <div className="text-sm text-slate-400">Pistes, factures, synthèse, meilleurs clients</div>
+            <label className="mb-2 block text-sm text-slate-400">Email</label>
+            <input value={email} onChange={(e) => setEmail(e.target.value)} className="w-full rounded-2xl border border-slate-700 bg-slate-900 px-4 py-3 outline-none focus:border-indigo-400" />
           </div>
-          <Shield className="size-5" />
-        </button>
-      </div>
+          <div>
+            <label className="mb-2 block text-sm text-slate-400">Mot de passe</label>
+            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} className="w-full rounded-2xl border border-slate-700 bg-slate-900 px-4 py-3 outline-none focus:border-indigo-400" />
+          </div>
+          <button
+            disabled={loading}
+            onClick={() => onLogin(email, password)}
+            className="w-full rounded-2xl bg-indigo-500 px-5 py-4 font-medium text-white transition hover:bg-indigo-400 disabled:cursor-not-allowed disabled:opacity-70"
+          >
+            {loading ? 'Connexion...' : 'Se connecter'}
+          </button>
+          {error ? <div className="rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">{error}</div> : null}
+        </div>
 
-      <div className="mt-6 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-4 text-sm text-emerald-200">
-        Comptes démo backend: employee@crm.local / admin@crm.local — mot de passe: password123
+        <div className="mt-6 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-4 text-sm text-emerald-200">
+          Démo: employee@crm.local / admin@crm.local — mot de passe: password123
+        </div>
       </div>
     </div>
   );
 }
 
-function DataTable({ columns, rows }: { columns: string[]; rows: Record<string, string | number>[] }) {
+function KpiCard({ label, value, icon }: { label: string; value: string; icon: ReactNode }) {
+  return (
+    <div className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="flex items-center justify-between text-slate-500">
+        <span className="text-sm">{label}</span>
+        {icon}
+      </div>
+      <div className="mt-4 text-3xl font-semibold text-slate-900">{value}</div>
+    </div>
+  );
+}
+
+function DataTable({ columns, rows }: { columns: string[]; rows: Record<string, string | number | null>[] }) {
   return (
     <div className="overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-sm">
       <div className="overflow-x-auto">
@@ -140,13 +231,19 @@ function DataTable({ columns, rows }: { columns: string[]; rows: Record<string, 
             </tr>
           </thead>
           <tbody>
-            {rows.map((row, index) => (
-              <tr key={index} className="border-t border-slate-100 text-slate-700">
-                {Object.values(row).map((value, idx) => (
-                  <td key={idx} className="px-4 py-3">{value}</td>
-                ))}
+            {rows.length === 0 ? (
+              <tr>
+                <td className="px-4 py-8 text-slate-400" colSpan={columns.length}>Aucune donnée disponible.</td>
               </tr>
-            ))}
+            ) : (
+              rows.map((row, index) => (
+                <tr key={index} className="border-t border-slate-100 text-slate-700">
+                  {Object.values(row).map((value, idx) => (
+                    <td key={idx} className="px-4 py-3">{formatValue(value)}</td>
+                  ))}
+                </tr>
+              ))
+            )}
           </tbody>
         </table>
       </div>
@@ -154,125 +251,190 @@ function DataTable({ columns, rows }: { columns: string[]; rows: Record<string, 
   );
 }
 
-function Panel({ activeTab }: { activeTab: Tab }) {
-  switch (activeTab) {
-    case 'COMPTES':
-      return <DataTable columns={['Nom', 'Secteur', 'Responsable', 'Statut', 'CA']} rows={accounts} />;
-    case 'CONTACTS':
-      return <DataTable columns={['Nom', 'Société', 'Email', 'Fonction']} rows={contacts} />;
-    case 'OPPORTUNITÉS':
-      return <DataTable columns={['Affaire', 'Valeur', 'Étape', 'Probabilité']} rows={opportunities} />;
-    case 'SOUS-TRAITANT':
-      return <DataTable columns={['Nom', 'Spécialité', 'Note', 'Disponibilité']} rows={subcontractors} />;
-    case 'PISTES':
-      return <DataTable columns={['Société', 'Source', 'Score', 'Assigné à']} rows={leads} />;
-    case 'FACTURES':
-      return <DataTable columns={['Réf.', 'Client', 'Montant', 'Statut']} rows={invoices} />;
-    case 'SYNTHÈSE':
-      return (
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          {summaryStats.map((item) => (
-            <div key={item.label} className="rounded-[24px] border border-slate-200 bg-white p-6 shadow-sm">
-              <div className="text-sm text-slate-500">{item.label}</div>
-              <div className="mt-2 text-3xl font-semibold text-slate-900">{item.value}</div>
-            </div>
+function Panel({ activeTab, payload }: { activeTab: Tab; payload: EntityPayload & { summaryCards?: DashboardStats } }) {
+  if (activeTab === 'SYNTHÈSE') {
+    return (
+      <div className="space-y-6">
+        <div className="grid gap-4 md:grid-cols-4">
+          {(payload.summaryCards || []).map((item) => (
+            <KpiCard key={item.label} label={item.label} value={item.value} icon={<ChartNoAxesCombined className="size-4" />} />
           ))}
         </div>
-      );
-    case 'MEILLEURS CLIENTS':
-      return <DataTable columns={['Client', 'Chiffre d\'affaires', 'Santé']} rows={topClients} />;
-    default:
-      return null;
+        <DataTable
+          columns={tabMeta[activeTab].columns}
+          rows={(payload.summary || []).map((item) => ({ indicateur: item.label, valeur: item.value }))}
+        />
+      </div>
+    );
   }
-}
 
-function Dashboard({ role, onLogout }: { role: Role; onLogout: () => void }) {
-  const tabs = role === 'admin' ? adminTabs : employeeTabs;
-  const [activeTab, setActiveTab] = useState<Tab>(tabs[0].label);
-
-  const kpis = useMemo(
-    () =>
-      role === 'admin'
-        ? [
-            { label: 'Pistes actives', value: '24' },
-            { label: 'Factures du mois', value: '17' },
-            { label: 'Taux de closing', value: '31%' },
-          ]
-        : [
-            { label: 'Comptes gérés', value: '42' },
-            { label: 'Contacts clés', value: '118' },
-            { label: 'Pipeline ouvert', value: '€88k' },
-          ],
-    [role],
-  );
-
-  return (
-    <div className="min-h-screen bg-slate-100 text-slate-900">
-      <aside className="fixed inset-y-0 left-0 hidden w-72 border-r border-slate-200 bg-slate-950 px-6 py-8 text-white lg:block">
-        <div className="flex items-center gap-3 text-lg font-semibold">
-          <div className="flex size-11 items-center justify-center rounded-2xl bg-indigo-500 text-white">W</div>
-          Wordsinvest CRM
-        </div>
-
-        <div className="mt-10 text-xs uppercase tracking-[0.2em] text-slate-400">Navigation</div>
-        <nav className="mt-4 space-y-2">
-          {tabs.map((tab) => {
-            const Icon = tab.icon;
-            const active = activeTab === tab.label;
-            return (
-              <button
-                key={tab.label}
-                onClick={() => setActiveTab(tab.label)}
-                className={`flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left transition ${
-                  active ? 'bg-white text-slate-950' : 'text-slate-300 hover:bg-white/10 hover:text-white cursor-pointer'
-                }`}
-              >
-                <Icon className="size-4" />
-                {tab.label}
-              </button>
-            );
-          })}
-        </nav>
-      </aside>
-
-      <main className="lg:pl-72">
-        <header className="sticky top-0 z-10 border-b border-slate-200 bg-white/90 px-4 py-4 backdrop-blur md:px-8">
-          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-            <div>
-              <div className="text-sm text-slate-500">{role === 'admin' ? 'Espace administrateur' : 'Espace salarié'}</div>
-              <h1 className="text-2xl font-semibold">{activeTab}</h1>
-            </div>
-            <div className="flex items-center gap-3">
-              <button className="rounded-2xl border border-slate-200 bg-white p-3"><Bell className="size-4" /></button>
-              <button onClick={onLogout} className="flex items-center gap-2 rounded-2xl bg-slate-950 px-4 py-3 text-sm font-medium text-white cursor-pointer">
-                <LogOut className="size-4" /> Déconnexion
-              </button>
-            </div>
-          </div>
-        </header>
-
-        <section className="space-y-6 px-4 py-6 md:px-8">
-          <div className="grid gap-4 md:grid-cols-3">
-            {kpis.map((item) => (
-              <div key={item.label} className="rounded-[24px] bg-white p-6 shadow-sm ring-1 ring-slate-200">
-                <div className="text-sm text-slate-500">{item.label}</div>
-                <div className="mt-2 text-3xl font-semibold">{item.value}</div>
-              </div>
-            ))}
-          </div>
-          <Panel activeTab={activeTab} />
-        </section>
-      </main>
-    </div>
-  );
+  const rows = payload[tabToKey[activeTab]] || [];
+  return <DataTable columns={tabMeta[activeTab].columns} rows={rows} />;
 }
 
 export default function App() {
-  const [role, setRole] = useState<Role | null>(null);
+  const [auth, setAuth] = useState<AuthResponse | null>(null);
+  const [activeTab, setActiveTab] = useState<Tab>('COMPTES');
+  const [payload, setPayload] = useState<EntityPayload & { summaryCards?: DashboardStats }>({});
+  const [loading, setLoading] = useState(false);
+  const [bootstrapping, setBootstrapping] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const tabs = useMemo(() => {
+    if (auth?.user.role === 'admin') return adminTabs;
+    return employeeTabs;
+  }, [auth]);
+
+  useEffect(() => {
+    if (!auth) return;
+    const firstTab = tabs[0]?.label;
+    if (firstTab) setActiveTab(firstTab);
+  }, [auth, tabs]);
+
+  async function login(email: string, password: string) {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await api<AuthResponse>('/auth/login', {
+        method: 'POST',
+        body: JSON.stringify({ email, password }),
+      });
+      setAuth(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Connexion impossible');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function refreshData() {
+    if (!auth?.token) return;
+    setBootstrapping(true);
+    setError(null);
+    try {
+      const [entities, summary, topClients, users, groups] = await Promise.all([
+        api<EntityPayload>('/entities', {}, auth.token),
+        api<{ summary: DashboardStats; summaryCards: DashboardStats }>('/dashboard/summary', {}, auth.token),
+        api<{ topClients: EntityPayload['topClients'] }>('/dashboard/top-clients', {}, auth.token),
+        auth.user.role === 'admin' ? api<{ users: EntityPayload['users'] }>('/admin/users', {}, auth.token) : Promise.resolve({ users: [] }),
+        auth.user.role === 'admin' ? api<{ groups: EntityPayload['groups'] }>('/admin/groups', {}, auth.token) : Promise.resolve({ groups: [] }),
+      ]);
+
+      setPayload({
+        ...entities,
+        summary: summary.summary.map((item) => ({ label: item.label, value: item.value })),
+        summaryCards: summary.summaryCards,
+        topClients: topClients.topClients || [],
+        users: users.users || [],
+        groups: groups.groups || [],
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Chargement impossible');
+    } finally {
+      setBootstrapping(false);
+    }
+  }
+
+  useEffect(() => {
+    refreshData();
+  }, [auth?.token]);
+
+  if (!auth) {
+    return (
+      <main className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(99,102,241,0.18),_transparent_35%),linear-gradient(180deg,_#020617,_#0f172a)] px-4 py-10 md:px-8">
+        <div className="mx-auto flex min-h-[85vh] max-w-7xl items-center justify-center">
+          <LoginCard onLogin={login} loading={loading} error={error} />
+        </div>
+      </main>
+    );
+  }
+
+  const activeMeta = tabMeta[activeTab];
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(99,102,241,0.18),_transparent_35%),linear-gradient(180deg,_#020617,_#111827)] p-4 md:p-8">
-      {role ? <Dashboard role={role} onLogout={() => setRole(null)} /> : <LoginCard onLogin={setRole} />}
-    </div>
+    <main className="min-h-screen bg-slate-100 text-slate-900">
+      <div className="grid min-h-screen lg:grid-cols-[280px_1fr]">
+        <aside className="border-r border-slate-200 bg-slate-950 px-5 py-6 text-white">
+          <div className="flex items-center gap-3 rounded-2xl bg-white/5 p-4">
+            <div className="rounded-2xl bg-indigo-500/20 p-3 text-indigo-300">
+              <LayoutDashboard className="size-5" />
+            </div>
+            <div>
+              <div className="text-sm text-slate-400">Wordsinvest</div>
+              <div className="font-semibold">CRM métier</div>
+            </div>
+          </div>
+
+          <div className="mt-8 rounded-2xl border border-white/10 bg-white/5 p-4 text-sm">
+            <div className="text-slate-400">Connecté en tant que</div>
+            <div className="mt-1 font-medium">{auth.user.fullName}</div>
+            <div className="text-slate-400">{auth.user.role}</div>
+          </div>
+
+          <nav className="mt-8 space-y-2">
+            {tabs.map(({ label, icon: Icon }) => {
+              const isActive = activeTab === label;
+              return (
+                <button
+                  key={label}
+                  onClick={() => setActiveTab(label)}
+                  className={`flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left text-sm transition ${
+                    isActive ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/20' : 'text-slate-300 hover:bg-white/5 hover:text-white'
+                  }`}
+                >
+                  <Icon className="size-4" />
+                  <span>{label}</span>
+                </button>
+              );
+            })}
+          </nav>
+
+          <button
+            onClick={() => {
+              setAuth(null);
+              setPayload({});
+              setError(null);
+            }}
+            className="mt-8 flex w-full items-center justify-center gap-2 rounded-2xl border border-white/10 px-4 py-3 text-sm text-slate-300 transition hover:bg-white/5 hover:text-white"
+          >
+            <LogOut className="size-4" /> Déconnexion
+          </button>
+        </aside>
+
+        <section className="p-4 md:p-8">
+          <header className="flex flex-col gap-4 rounded-[28px] bg-white p-5 shadow-sm md:flex-row md:items-center md:justify-between">
+            <div>
+              <div className="text-sm uppercase tracking-[0.2em] text-slate-400">{auth.user.role === 'admin' ? 'admin' : 'salarié'}</div>
+              <h1 className="mt-2 text-3xl font-semibold">{activeMeta.title}</h1>
+              <p className="mt-2 max-w-2xl text-sm text-slate-500">{activeMeta.subtitle}</p>
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-500">
+                <Search className="size-4" /> Recherche globale
+              </div>
+              <button onClick={refreshData} className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600 hover:bg-slate-50">
+                <RefreshCw className={`size-4 ${bootstrapping ? 'animate-spin' : ''}`} /> Actualiser
+              </button>
+              <button className="rounded-2xl border border-slate-200 bg-white p-3 text-slate-600 hover:bg-slate-50">
+                <Bell className="size-4" />
+              </button>
+            </div>
+          </header>
+
+          <div className="mt-6 grid gap-4 md:grid-cols-3 xl:grid-cols-4">
+            <KpiCard label="Modules actifs" value={String(tabs.length)} icon={<Layers3 className="size-4" />} />
+            <KpiCard label="Rôle" value={auth.user.role === 'admin' ? 'Admin' : 'Salarié'} icon={<Shield className="size-4" />} />
+            <KpiCard label="Backend" value={bootstrapping ? 'Sync...' : 'Connecté'} icon={<BriefcaseBusiness className="size-4" />} />
+            <KpiCard label="Base" value="PostgreSQL" icon={<Building2 className="size-4" />} />
+          </div>
+
+          {error ? <div className="mt-6 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div> : null}
+
+          <div className="mt-6">
+            <Panel activeTab={activeTab} payload={payload} />
+          </div>
+        </section>
+      </div>
+    </main>
   );
 }

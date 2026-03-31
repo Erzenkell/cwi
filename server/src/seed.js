@@ -3,13 +3,24 @@ import { query, pool } from './db.js';
 
 const passwordHash = await bcrypt.hash('password123', 10);
 
+await query(`
+  INSERT INTO groups (name, description)
+  VALUES
+    ('Commercial', 'Equipe en charge des comptes, contacts et opportunités'),
+    ('Administration', 'Equipe admin pour factures, synthèse et pilotage')
+  ON CONFLICT (name) DO NOTHING
+`);
+
+const groups = await query('SELECT id, name FROM groups');
+const groupIdByName = Object.fromEntries(groups.rows.map((row) => [row.name, row.id]));
+
 await query(
-  `INSERT INTO users (full_name, email, password_hash, role)
+  `INSERT INTO users (full_name, email, password_hash, role, group_id)
    VALUES
-     ('Salarié Demo', 'employee@crm.local', $1, 'employee'),
-     ('Admin Demo', 'admin@crm.local', $1, 'admin')
+     ('Salarié Demo', 'employee@crm.local', $1, 'employee', $2),
+     ('Admin Demo', 'admin@crm.local', $1, 'admin', $3)
    ON CONFLICT (email) DO NOTHING`,
-  [passwordHash],
+  [passwordHash, groupIdByName.Commercial ?? null, groupIdByName.Administration ?? null],
 );
 
 await query(`
@@ -17,7 +28,8 @@ await query(`
   VALUES
     ('Wordsinvest Capital', 'Finance', 'Sofia', 'Actif', 320000),
     ('Nova Industrie', 'Industrie', 'Yanis', 'À relancer', 185000),
-    ('Aster Conseil', 'Conseil', 'Lina', 'Fidèle', 96000)
+    ('Aster Conseil', 'Conseil', 'Lina', 'Fidèle', 96000),
+    ('Meraki Partners', 'Services', 'Nora', 'Prospect chaud', 74000)
   ON CONFLICT DO NOTHING
 `);
 
@@ -26,7 +38,8 @@ await query(`
   VALUES
     ('Camille Durand', 'Wordsinvest Capital', 'camille@wordsinvest.test', 'CEO'),
     ('Romain Perez', 'Nova Industrie', 'romain@nova.test', 'Acheteur'),
-    ('Inès Martin', 'Aster Conseil', 'ines@aster.test', 'CFO')
+    ('Inès Martin', 'Aster Conseil', 'ines@aster.test', 'CFO'),
+    ('Sarah Klein', 'Meraki Partners', 'sarah@meraki.test', 'Office Manager')
   ON CONFLICT DO NOTHING
 `);
 
@@ -35,7 +48,8 @@ await query(`
   VALUES
     ('Refonte CRM Europe', 42000, 'Proposition', 75),
     ('Migration data room', 28000, 'Négociation', 60),
-    ('Audit partenaires', 18000, 'Découverte', 35)
+    ('Audit partenaires', 18000, 'Découverte', 35),
+    ('Industrialisation reporting', 51000, 'Closing', 85)
   ON CONFLICT DO NOTHING
 `);
 
@@ -44,7 +58,8 @@ await query(`
   VALUES
     ('Atlas Tech', 'Développement', 4.8, 'Disponible'),
     ('Blue Ledger', 'Comptabilité', 4.4, 'Sous 2 semaines'),
-    ('North Ops', 'Support', 4.6, 'Disponible')
+    ('North Ops', 'Support', 4.6, 'Disponible'),
+    ('Pulse Data', 'BI / Data', 4.9, 'Sous 1 semaine')
   ON CONFLICT DO NOTHING
 `);
 
@@ -53,7 +68,8 @@ await query(`
   VALUES
     ('Meridian Group', 'LinkedIn', 82, 'Sofia'),
     ('Hexa Patrimoine', 'Salon', 76, 'Yanis'),
-    ('Delta One', 'Referral', 69, 'Lina')
+    ('Delta One', 'Referral', 69, 'Lina'),
+    ('Orion Advisory', 'Outbound', 88, 'Nora')
   ON CONFLICT DO NOTHING
 `);
 
@@ -62,7 +78,8 @@ await query(`
   VALUES
     ('INV-2026-001', 'Wordsinvest Capital', 12500, 'Payée'),
     ('INV-2026-002', 'Nova Industrie', 8900, 'En attente'),
-    ('INV-2026-003', 'Aster Conseil', 6100, 'Brouillon')
+    ('INV-2026-003', 'Aster Conseil', 6100, 'Brouillon'),
+    ('INV-2026-004', 'Meraki Partners', 14800, 'Envoyée')
   ON CONFLICT DO NOTHING
 `);
 

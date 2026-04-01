@@ -63,3 +63,57 @@ CREATE TABLE IF NOT EXISTS invoices (
   amount_eur NUMERIC(12,2) DEFAULT 0,
   status TEXT
 );
+
+-- ========================
+-- INVOICES
+-- ========================
+CREATE TABLE invoices (
+  id SERIAL PRIMARY KEY,
+  invoice_number TEXT UNIQUE NOT NULL,
+  customer_name TEXT NOT NULL,
+  customer_siret TEXT,
+  issue_date DATE NOT NULL,
+  due_date DATE,
+  status TEXT DEFAULT 'draft',
+  technical_status TEXT DEFAULT 'pending',
+
+  subtotal_ht NUMERIC(12,2),
+  total_vat NUMERIC(12,2),
+  total_ttc NUMERIC(12,2),
+
+  currency TEXT DEFAULT 'EUR',
+
+  platform_name TEXT,
+  platform_external_id TEXT,
+
+  pdf_path TEXT,
+  facturx_path TEXT,
+  xml_path TEXT,
+
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- ========================
+-- LIGNES
+-- ========================
+CREATE TABLE invoice_lines (
+  id SERIAL PRIMARY KEY,
+  invoice_id INTEGER REFERENCES invoices(id) ON DELETE CASCADE,
+  label TEXT,
+  quantity NUMERIC,
+  unit_price_ht NUMERIC,
+  vat_rate NUMERIC,
+  total_ht NUMERIC
+);
+
+-- ========================
+-- EVENTS (audit)
+-- ========================
+CREATE TABLE invoice_events (
+  id SERIAL PRIMARY KEY,
+  invoice_id INTEGER,
+  event_type TEXT,
+  payload JSONB,
+  created_at TIMESTAMP DEFAULT NOW()
+);

@@ -67,53 +67,52 @@ CREATE TABLE IF NOT EXISTS invoices (
 -- ========================
 -- INVOICES
 -- ========================
-CREATE TABLE invoices (
+CREATE TABLE IF NOT EXISTS invoices (
   id SERIAL PRIMARY KEY,
   invoice_number TEXT UNIQUE NOT NULL,
   customer_name TEXT NOT NULL,
   customer_siret TEXT,
   issue_date DATE NOT NULL,
   due_date DATE,
-  status TEXT DEFAULT 'draft',
-  technical_status TEXT DEFAULT 'pending',
-
-  subtotal_ht NUMERIC(12,2),
-  total_vat NUMERIC(12,2),
-  total_ttc NUMERIC(12,2),
-
-  currency TEXT DEFAULT 'EUR',
-
+  status TEXT NOT NULL DEFAULT 'draft',
+  technical_status TEXT NOT NULL DEFAULT 'pending',
+  subtotal_ht NUMERIC(12,2) NOT NULL DEFAULT 0,
+  total_vat NUMERIC(12,2) NOT NULL DEFAULT 0,
+  total_ttc NUMERIC(12,2) NOT NULL DEFAULT 0,
+  currency TEXT NOT NULL DEFAULT 'EUR',
   platform_name TEXT,
   platform_external_id TEXT,
-
   pdf_path TEXT,
   facturx_path TEXT,
   xml_path TEXT,
-
+  payment_reference TEXT,
+  notes TEXT,
+  paid_at TIMESTAMP NULL,
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW()
 );
 
--- ========================
--- LIGNES
--- ========================
-CREATE TABLE invoice_lines (
+CREATE TABLE IF NOT EXISTS invoice_lines (
   id SERIAL PRIMARY KEY,
-  invoice_id INTEGER REFERENCES invoices(id) ON DELETE CASCADE,
-  label TEXT,
-  quantity NUMERIC,
-  unit_price_ht NUMERIC,
-  vat_rate NUMERIC,
-  total_ht NUMERIC
+  invoice_id INTEGER NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
+  label TEXT NOT NULL,
+  description TEXT,
+  quantity NUMERIC(12,2) NOT NULL DEFAULT 1,
+  unit_price_ht NUMERIC(12,2) NOT NULL DEFAULT 0,
+  vat_rate NUMERIC(5,2) NOT NULL DEFAULT 20,
+  total_ht NUMERIC(12,2) NOT NULL DEFAULT 0
 );
 
--- ========================
--- EVENTS (audit)
--- ========================
-CREATE TABLE invoice_events (
+CREATE TABLE IF NOT EXISTS invoice_events (
   id SERIAL PRIMARY KEY,
-  invoice_id INTEGER,
-  event_type TEXT,
+  invoice_id INTEGER NOT NULL,
+  event_type TEXT NOT NULL,
   payload JSONB,
   created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS invoice_sequences (
+  id SERIAL PRIMARY KEY,
+  year INTEGER NOT NULL UNIQUE,
+  current_value INTEGER NOT NULL DEFAULT 0
 );

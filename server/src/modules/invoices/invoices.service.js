@@ -3,6 +3,10 @@ import path from 'path';
 import PDFDocument from 'pdfkit';
 import { pool, query } from '../../db.js';
 import { nextInvoiceNumber } from './invoice-number.service.js';
+import { generateInvoiceXml } from './invoice-xml.service.js';
+import { generateFacturXPlaceholder } from './facturx.service.js';
+import { validateInvoiceForEInvoicing } from './invoice-validation.service.js';
+import { MockEInvoiceProvider } from './providers/mock.provider.js';
 
 function round2(value) {
   return Math.round((Number(value) + Number.EPSILON) * 100) / 100;
@@ -77,9 +81,21 @@ export async function createInvoice(data) {
         status,
         technical_status,
         currency,
-        notes
+        notes,
+        supplier_name,
+        supplier_siret,
+        supplier_vat_number,
+        customer_vat_number,
+        customer_address,
+        customer_country,
+        document_type,
+        business_flow
       )
-      VALUES ($1, $2, $3, $4, $5, 'draft', 'pending', 'EUR', $6)
+      VALUES (
+        $1, $2, $3, $4, $5,
+        'draft', 'pending', 'EUR', $6,
+        $7, $8, $9, $10, $11, $12, 'invoice', $13
+      )
       RETURNING *
       `,
       [
@@ -89,6 +105,13 @@ export async function createInvoice(data) {
         data.issue_date,
         data.due_date || null,
         data.notes || null,
+        data.supplier_name || 'Wordsinvest',
+        data.supplier_siret || '12345678900011',
+        data.supplier_vat_number || 'FR00123456789',
+        data.customer_vat_number || null,
+        data.customer_address || null,
+        data.customer_country || 'FR',
+        data.business_flow || 'b2b_fr',
       ]
     );
 
@@ -358,4 +381,258 @@ export async function generatePdf(invoiceId) {
   );
 
   return updated.rows[0];
+}
+
+async function updateValidationErrors(invoiceId, errors) {
+  await query(
+    `
+    UPDATE invoices
+    SET validation_errors = $2,
+        updated_at = NOW()
+    WHERE id = $1
+    `,
+    [invoiceId, JSON.stringify(errors)]
+  );
+}
+
+export async function generateXml(invoiceId) {
+  const invoice = await getInvoiceById(invoiceId);
+
+  if (!invoice) {
+    throw new Error('Invoice not found');
+  }
+
+  const errors = validateInvoiceForEInvoicing(invoice);
+
+  await updateValidationErrors(invoiceId, errors);
+
+  if (errors.length) {
+    throw new Error(`Validation e-facture échouée: ${errors.join(' | ')}`);
+  }
+
+  const xmlPath = await generateInvoiceXml(invoice);
+
+  const updated = await query(
+    `
+    UPDATE invoices
+    SET xml_path = $2,
+        technical_status = 'xml_generated',
+        updated_at = NOW()
+    WHERE id = $1
+    RETURNING *
+    `,
+    [invoiceId, xmlPath]
+  );
+
+  await query(
+    `
+    INSERT INTO invoice_events (invoice_id, event_type, payload)
+    VALUES ($1, 'xml_generated', $2)
+    `,
+    [invoiceId, JSON.stringify({ xml_path: xmlPath })]
+  );
+
+  return updated.rows[0];
+}
+
+export async function generateFacturX(invoiceId) {
+  const invoice = await getInvoiceById(invoiceId);
+
+  if (!invoice) {
+    throw new Error('Invoice not found');
+  }
+
+  const facturXPath = await generateFacturXPlaceholder(
+    invoice,
+    invoice.xml_path,
+    invoice.pdf_path
+  );
+
+  const updated = await query(
+    `
+    UPDATE invoices
+    SET facturx_path = $2,
+        technical_status = 'facturx_generated',
+        updated_at = NOW()
+    WHERE id = $1
+    RETURNING *
+    `,
+    [invoiceId, facturXPath]
+  );
+
+  await query(
+    `
+    INSERT INTO invoice_events (invoice_id, event_type, payload)
+    VALUES ($1, 'facturx_generated', $2)
+    `,
+    [invoiceId, JSON.stringify({ facturx_path: facturXPath })]
+  );
+
+  return updated.rows[0];
+}
+
+export async function sendToPlatform(invoiceId) {
+  const client = await pool.connect();
+
+  try {
+    await client.query('BEGIN');
+
+    const invoice = await getInvoiceById(invoiceId);
+
+    if (!invoice) {
+      throw new Error('Invoice not found');
+    }
+
+    const errors = validateInvoiceForEInvoicing(invoice);
+    await updateValidationErrors(invoiceId, errors);
+
+    if (errors.length) {
+      throw new Error(`Validation e-facture échouée: ${errors.join(' | ')}`);
+    }
+
+    const provider = new MockEInvoiceProvider();
+    const result = await provider.sendInvoice(invoice);
+
+    const transmission = await client.query(
+      `
+      INSERT INTO invoice_transmissions (
+        invoice_id,
+        provider,
+        external_id,
+        request_payload,
+        response_payload,
+        status,
+        http_status
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
+      RETURNING *
+      `,
+      [
+        invoiceId,
+        result.provider,
+        result.external_id,
+        JSON.stringify({
+          invoice_number: invoice.invoice_number,
+          xml_path: invoice.xml_path,
+          pdf_path: invoice.pdf_path,
+          facturx_path: invoice.facturx_path,
+        }),
+        JSON.stringify(result.response_payload),
+        result.status,
+        200,
+      ]
+    );
+
+    const updated = await client.query(
+      `
+      UPDATE invoices
+      SET status = 'sent_to_platform',
+          technical_status = 'platform_acknowledged',
+          platform_name = $2,
+          platform_external_id = $3,
+          provider_status = $4,
+          provider_payload = $5,
+          sent_at = NOW(),
+          updated_at = NOW()
+      WHERE id = $1
+      RETURNING *
+      `,
+      [
+        invoiceId,
+        result.provider,
+        result.external_id,
+        result.status,
+        JSON.stringify(result.response_payload),
+      ]
+    );
+
+    await addEvent(client, invoiceId, 'sent_to_platform', {
+      provider: result.provider,
+      external_id: result.external_id,
+      status: result.status,
+    });
+
+    await client.query('COMMIT');
+    return {
+      invoice: updated.rows[0],
+      transmission: transmission.rows[0],
+    };
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+export async function applyProviderStatus(invoiceId, providerStatusPayload) {
+  const client = await pool.connect();
+
+  try {
+    await client.query('BEGIN');
+
+    let status = 'sent_to_platform';
+    let technicalStatus = 'platform_acknowledged';
+
+    if (providerStatusPayload.status === 'delivered') {
+      status = 'delivered';
+      technicalStatus = 'customer_routed';
+    }
+
+    if (providerStatusPayload.status === 'rejected') {
+      status = 'rejected';
+      technicalStatus = 'platform_rejected';
+    }
+
+    const updated = await client.query(
+      `
+      UPDATE invoices
+      SET status = $2,
+          technical_status = $3,
+          provider_status = $4,
+          provider_payload = $5,
+          delivered_at = CASE WHEN $2 = 'delivered' THEN NOW() ELSE delivered_at END,
+          rejected_at = CASE WHEN $2 = 'rejected' THEN NOW() ELSE rejected_at END,
+          updated_at = NOW()
+      WHERE id = $1
+      RETURNING *
+      `,
+      [
+        invoiceId,
+        status,
+        technicalStatus,
+        providerStatusPayload.status,
+        JSON.stringify(providerStatusPayload),
+      ]
+    );
+
+    if (!updated.rows.length) {
+      throw new Error('Invoice not found');
+    }
+
+    await addEvent(client, invoiceId, `provider_status_${providerStatusPayload.status}`, providerStatusPayload);
+
+    await client.query('COMMIT');
+    return updated.rows[0];
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+export async function getRejectedInvoices() {
+  const result = await query(
+    `
+    SELECT *
+    FROM invoices
+    WHERE status = 'rejected'
+       OR technical_status = 'platform_rejected'
+       OR (validation_errors IS NOT NULL AND validation_errors <> '[]'::jsonb)
+    ORDER BY updated_at DESC
+    `
+  );
+
+  return result.rows;
 }

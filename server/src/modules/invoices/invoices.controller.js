@@ -70,3 +70,51 @@ export async function pdf(req, res) {
     res.status(500).json({ error: err.message });
   }
 }
+
+export async function generateXml(req, res) {
+  try {
+    const invoice = await service.generateXml(req.params.id);
+    res.json(invoice);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+}
+
+export async function generateFacturX(req, res) {
+  try {
+    const invoice = await service.generateFacturX(req.params.id);
+    res.json(invoice);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+}
+
+export async function sendPlatform(req, res) {
+  try {
+    const result = await service.sendToPlatform(req.params.id);
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+}
+
+export async function rejected(req, res) {
+  try {
+    const invoices = await service.getRejectedInvoices();
+    res.json(invoices);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+export async function webhookStatus(req, res) {
+  try {
+    const invoice = await service.applyProviderStatus(
+      req.params.id,
+      req.body
+    );
+    res.json(invoice);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+}

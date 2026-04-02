@@ -5,6 +5,11 @@ import {
   validateInvoice,
   payInvoice,
   generateInvoicePdf,
+  generateInvoiceXml,
+  generateInvoiceFacturX,
+  sendInvoiceToPlatform,
+  simulateProviderDelivered,
+  simulateProviderRejected,
 } from './api';
 
 type Invoice = {
@@ -130,6 +135,50 @@ export default function InvoicesPage() {
                   disabled={inv.status === 'paid'}
                 >
                   Marquer payé
+                </button>
+                <button
+                  onClick={async () => {
+                    await generateInvoiceXml(inv.id);
+                    await load();
+                  }}
+                >
+                  XML
+                </button>
+
+                <button
+                  onClick={async () => {
+                    await generateInvoiceFacturX(inv.id);
+                    await load();
+                  }}
+                >
+                  Factur-X
+                </button>
+
+                <button
+                  onClick={async () => {
+                    await sendInvoiceToPlatform(inv.id);
+                    await load();
+                  }}
+                >
+                  Envoyer
+                </button>
+
+                <button
+                  onClick={async () => {
+                    await simulateProviderDelivered(inv.id);
+                    await load();
+                  }}
+                >
+                  Delivered
+                </button>
+
+                <button
+                  onClick={async () => {
+                    await simulateProviderRejected(inv.id, 'SIRET client invalide');
+                    await load();
+                  }}
+                >
+                  Reject
                 </button>
               </td>
             </tr>

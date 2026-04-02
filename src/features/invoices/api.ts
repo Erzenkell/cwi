@@ -89,3 +89,68 @@ export async function generateInvoicePdf(id: number | string) {
   if (!res.ok) throw new Error('Erreur génération PDF');
   return res.json();
 }
+
+export async function generateInvoiceXml(id: number | string) {
+  const res = await fetch(`${BASE}/${id}/xml`, {
+    method: 'POST',
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error('Erreur génération XML');
+  return res.json();
+}
+
+export async function generateInvoiceFacturX(id: number | string) {
+  const res = await fetch(`${BASE}/${id}/facturx`, {
+    method: 'POST',
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error('Erreur génération Factur-X');
+  return res.json();
+}
+
+export async function sendInvoiceToPlatform(id: number | string) {
+  const res = await fetch(`${BASE}/${id}/send`, {
+    method: 'POST',
+    headers: authHeaders(),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Erreur envoi plateforme');
+  }
+  return res.json();
+}
+
+export async function fetchRejectedInvoices() {
+  const res = await fetch(`${BASE}/rejected/list`, {
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error('Erreur chargement anomalies');
+  return res.json();
+}
+
+export async function simulateProviderDelivered(id: number | string) {
+  const res = await fetch(`${BASE}/${id}/provider-status`, {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify({
+      status: 'delivered',
+      delivered_at: new Date().toISOString(),
+    }),
+  });
+  if (!res.ok) throw new Error('Erreur simulation delivered');
+  return res.json();
+}
+
+export async function simulateProviderRejected(id: number | string, reason: string) {
+  const res = await fetch(`${BASE}/${id}/provider-status`, {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify({
+      status: 'rejected',
+      reason,
+      rejected_at: new Date().toISOString(),
+    }),
+  });
+  if (!res.ok) throw new Error('Erreur simulation rejected');
+  return res.json();
+}

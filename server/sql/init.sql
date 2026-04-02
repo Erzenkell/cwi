@@ -116,3 +116,34 @@ CREATE TABLE IF NOT EXISTS invoice_sequences (
   year INTEGER NOT NULL UNIQUE,
   current_value INTEGER NOT NULL DEFAULT 0
 );
+
+ALTER TABLE invoices
+  ADD COLUMN IF NOT EXISTS document_type TEXT NOT NULL DEFAULT 'invoice',
+  ADD COLUMN IF NOT EXISTS business_flow TEXT NOT NULL DEFAULT 'b2b_fr',
+  ADD COLUMN IF NOT EXISTS supplier_name TEXT,
+  ADD COLUMN IF NOT EXISTS supplier_siret TEXT,
+  ADD COLUMN IF NOT EXISTS supplier_vat_number TEXT,
+  ADD COLUMN IF NOT EXISTS customer_vat_number TEXT,
+  ADD COLUMN IF NOT EXISTS customer_address TEXT,
+  ADD COLUMN IF NOT EXISTS customer_country TEXT DEFAULT 'FR',
+  ADD COLUMN IF NOT EXISTS validation_errors JSONB,
+  ADD COLUMN IF NOT EXISTS sent_at TIMESTAMP NULL,
+  ADD COLUMN IF NOT EXISTS delivered_at TIMESTAMP NULL,
+  ADD COLUMN IF NOT EXISTS rejected_at TIMESTAMP NULL,
+  ADD COLUMN IF NOT EXISTS provider_status TEXT,
+  ADD COLUMN IF NOT EXISTS provider_payload JSONB;
+
+CREATE TABLE IF NOT EXISTS invoice_transmissions (
+  id SERIAL PRIMARY KEY,
+  invoice_id INTEGER NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
+  provider TEXT NOT NULL,
+  external_id TEXT,
+  request_payload JSONB,
+  response_payload JSONB,
+  status TEXT NOT NULL DEFAULT 'pending',
+  http_status INTEGER,
+  transmitted_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_invoice_transmissions_invoice_id
+  ON invoice_transmissions(invoice_id);

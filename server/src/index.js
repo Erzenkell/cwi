@@ -1,6 +1,8 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import cookieParser from 'cookie-parser';
+
 import { query } from './db.js';
 import authRoutes from './routes/auth.routes.js';
 import entityRoutes from './routes/entities.routes.js';
@@ -12,8 +14,16 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 4000;
 
-app.use(cors());
+const corsOptions = {
+  origin: 'http://localhost:5173',
+  credentials: true,
+};
+
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
+
 app.use(express.json());
+app.use(cookieParser());
 
 app.get('/api/health', async (_, res) => {
   const result = await query('SELECT NOW()');

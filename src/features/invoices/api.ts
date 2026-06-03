@@ -1,4 +1,6 @@
-const BASE = '/api/invoices';
+import { apiFetch } from '../../app/lib/apiFetch';
+
+const BASE = '/invoices';
 
 function authHeaders() {
   const token = localStorage.getItem('token');
@@ -9,7 +11,7 @@ function authHeaders() {
 }
 
 export async function fetchInvoices() {
-  const res = await fetch(BASE, {
+  const res = await apiFetch(BASE, {
     headers: authHeaders(),
   });
   if (!res.ok) throw new Error('Erreur chargement factures');
@@ -17,7 +19,7 @@ export async function fetchInvoices() {
 }
 
 export async function fetchInvoice(id: number | string) {
-  const res = await fetch(`${BASE}/${id}`, {
+  const res = await apiFetch(`${BASE}/${id}`, {
     headers: authHeaders(),
   });
   if (!res.ok) throw new Error('Erreur chargement facture');
@@ -31,7 +33,7 @@ export async function createInvoice(data: {
   due_date?: string;
   notes?: string;
 }) {
-  const res = await fetch(BASE, {
+  const res = await apiFetch(BASE, {
     method: 'POST',
     headers: authHeaders(),
     body: JSON.stringify(data),
@@ -50,7 +52,7 @@ export async function addInvoiceLine(
     vat_rate: number;
   }
 ) {
-  const res = await fetch(`${BASE}/${invoiceId}/lines`, {
+  const res = await apiFetch(`${BASE}/${invoiceId}/lines`, {
     method: 'POST',
     headers: authHeaders(),
     body: JSON.stringify(data),
@@ -60,7 +62,7 @@ export async function addInvoiceLine(
 }
 
 export async function validateInvoice(id: number | string) {
-  const res = await fetch(`${BASE}/${id}/validate`, {
+  const res = await apiFetch(`${BASE}/${id}/validate`, {
     method: 'POST',
     headers: authHeaders(),
   });
@@ -72,7 +74,7 @@ export async function payInvoice(
   id: number | string,
   payment_reference?: string
 ) {
-  const res = await fetch(`${BASE}/${id}/pay`, {
+  const res = await apiFetch(`${BASE}/${id}/pay`, {
     method: 'POST',
     headers: authHeaders(),
     body: JSON.stringify({ payment_reference }),
@@ -82,7 +84,7 @@ export async function payInvoice(
 }
 
 export async function generateInvoicePdf(id: number | string) {
-  const res = await fetch(`${BASE}/${id}/pdf`, {
+  const res = await apiFetch(`${BASE}/${id}/pdf`, {
     method: 'POST',
     headers: authHeaders(),
   });
@@ -91,7 +93,7 @@ export async function generateInvoicePdf(id: number | string) {
 }
 
 export async function generateInvoiceXml(id: number | string) {
-  const res = await fetch(`${BASE}/${id}/xml`, {
+  const res = await apiFetch(`${BASE}/${id}/xml`, {
     method: 'POST',
     headers: authHeaders(),
   });
@@ -100,7 +102,7 @@ export async function generateInvoiceXml(id: number | string) {
 }
 
 export async function generateInvoiceFacturX(id: number | string) {
-  const res = await fetch(`${BASE}/${id}/facturx`, {
+  const res = await apiFetch(`${BASE}/${id}/facturx`, {
     method: 'POST',
     headers: authHeaders(),
   });
@@ -109,7 +111,7 @@ export async function generateInvoiceFacturX(id: number | string) {
 }
 
 export async function sendInvoiceToPlatform(id: number | string) {
-  const res = await fetch(`${BASE}/${id}/send`, {
+  const res = await apiFetch(`${BASE}/${id}/send`, {
     method: 'POST',
     headers: authHeaders(),
   });
@@ -121,7 +123,7 @@ export async function sendInvoiceToPlatform(id: number | string) {
 }
 
 export async function fetchRejectedInvoices() {
-  const res = await fetch(`${BASE}/rejected/list`, {
+  const res = await apiFetch(`${BASE}/rejected/list`, {
     headers: authHeaders(),
   });
   if (!res.ok) throw new Error('Erreur chargement anomalies');
@@ -129,7 +131,7 @@ export async function fetchRejectedInvoices() {
 }
 
 export async function simulateProviderDelivered(id: number | string) {
-  const res = await fetch(`${BASE}/${id}/provider-status`, {
+  const res = await apiFetch(`${BASE}/${id}/provider-status`, {
     method: 'POST',
     headers: authHeaders(),
     body: JSON.stringify({
@@ -142,7 +144,7 @@ export async function simulateProviderDelivered(id: number | string) {
 }
 
 export async function simulateProviderRejected(id: number | string, reason: string) {
-  const res = await fetch(`${BASE}/${id}/provider-status`, {
+  const res = await apiFetch(`${BASE}/${id}/provider-status`, {
     method: 'POST',
     headers: authHeaders(),
     body: JSON.stringify({

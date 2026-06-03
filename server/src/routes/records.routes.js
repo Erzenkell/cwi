@@ -58,6 +58,28 @@ function normalizeValue(value) {
   return value;
 }
 
+
+router.get('/:entity/schema', async (req, res) => {
+  try {
+    const tableName = resolveTable(req.params.entity);
+
+    if (!tableName) {
+      return res.status(400).json({ message: 'Table non autorisée' });
+    }
+
+    const columns = await getColumns(tableName);
+
+    res.json({
+      table: tableName,
+      columns,
+      record: {},
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Erreur chargement schéma' });
+  }
+});
+
 router.get('/:entity/:id', async (req, res) => {
   try {
     const tableName = resolveTable(req.params.entity);
@@ -158,6 +180,63 @@ router.patch('/:entity/:id', async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Erreur mise à jour enregistrement' });
+  }
+});
+
+router.post('/:entity', async (req, res) => {
+  try {
+    const tableName = resolveTable(req.params.entity);
+
+    if (!tableName) {
+      return res.status(400).json({ message: 'Table non autorisée' });
+    }
+
+    const columns = await getColumns(tableName);
+    const columnNames = columns.map((c) => c.column_name);
+
+    const forbiddenColumns = new Set([
+      'id',
+      'created_at',
+      'updated_at',
+      'deleted_at',
+      'password',
+      'password_hash',
+      'encrypted_password',
+      'reset_password_token',
+      'remember_token',
+      'confirmation_token',
+    ]);
+
+    const entries = Object.entries(req.body)
+      .filter(([key]) => columnNames.includes(key))
+      .filter(([key]) => !forbiddenColumns.has(key))
+      .filter(([, value]) => value !== undefined && value !== '');
+
+    if (entries.length === 0) {
+      return res.status(400).json({ message: 'Aucun champ valide reçu' });
+    }
+
+    const insertColumns = entries.map(([key]) => key);
+    const placeholders = entries.map((_, index) => `$${index + 1}`);
+    const values = entries.map(([, value]) => normalizeValue(value));
+
+    const result = await query(
+      `
+      INSERT INTO ${tableName} (${insertColumns.join(', ')})
+      VALUES (${placeholders.join(', ')})
+      RETURNING *
+      `,
+      values
+    );
+
+    res.status(201).json({
+      table: tableName,
+      columns,
+      record: result.rows[0],
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: err.message || 'Erreur création enregistrement' });
   }
 });
 

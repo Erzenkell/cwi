@@ -69,6 +69,19 @@ const tabToKey: Record<Tab, string> = {
   GROUPES: 'groups',
 };
 
+const tabToEntity: Record<Tab, string | null> = {
+  COMPTES: 'accounts',
+  CONTACTS: 'contacts',
+  OPPORTUNITÉS: 'opportunities',
+  'SOUS-TRAITANT': 'suppliers',
+  PISTES: 'leads',
+  FACTURES: 'abstract_invoices',
+  SYNTHÈSE: null,
+  'MEILLEURS CLIENTS': null,
+  UTILISATEURS: 'users',
+  GROUPES: 'groups',
+};
+
 const tabMeta: Record<Tab, { title: string; subtitle: string; columns: string[] }> = {
   COMPTES: {
     title: 'Comptes',
@@ -398,7 +411,10 @@ type DbColumn = {
   is_nullable: 'YES' | 'NO';
 };
 
+type RecordModalMode = 'create' | 'edit';
+
 type RecordModalPayload = {
+  mode: RecordModalMode;
   table: string;
   columns: DbColumn[];
   record: Record<string, any>;
@@ -464,7 +480,9 @@ function EditRecordModal({
               {payload.table}
             </div>
             <h2 className="mt-1 text-2xl font-semibold text-slate-900">
-              Modifier l’enregistrement #{payload.record.id}
+              {payload.mode === 'create'
+                ? 'Créer un nouvel enregistrement'
+                : `Modifier l’enregistrement #${payload.record.id}`}
             </h2>
           </div>
 
@@ -620,6 +638,47 @@ export default function App() {
     }
   }
 
+  async function openCreateRecord() {
+    if (!auth?.token) return;
+
+    const entity = tabToEntity[activeTab];
+
+    if (!entity) {
+      setError(`Création indisponible pour la vue ${activeTab}.`);
+      return;
+    }
+
+    setModalLoading(true);
+    setModalError(null);
+
+    try {
+      const data = await api<Omit<RecordModalPayload, 'mode'>>(
+        `/records/${entity}/schema`,
+        {},
+        auth.token,
+        setAuth
+      );
+
+      const initialRecord: Record<string, any> = {};
+
+      for (const column of data.columns) {
+        if (isReadOnlyColumn(column.column_name)) continue;
+        initialRecord[column.column_name] = '';
+      }
+
+      setModalPayload({
+        mode: 'create',
+        table: data.table,
+        columns: data.columns,
+        record: initialRecord,
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Création impossible');
+    } finally {
+      setModalLoading(false);
+    }
+  }
+
   async function saveRecord(values: Record<string, any>) {
     if (!auth?.token || !modalPayload) return;
 
@@ -627,6 +686,28 @@ export default function App() {
     setModalError(null);
 
     try {
+      if (modalPayload.mode === 'create') {
+        const created = await api<Partial<RecordModalPayload> & { record: Record<string, any> }>(
+          `/records/${modalPayload.table}`,
+          {
+            method: 'POST',
+            body: JSON.stringify(values),
+          },
+          auth.token,
+          setAuth
+        );
+
+        setModalPayload({
+          mode: 'edit',
+          table: created.table || modalPayload.table,
+          columns: created.columns || modalPayload.columns,
+          record: created.record,
+        });
+
+        await refreshData();
+        return;
+      }
+
       const updated = await api<Partial<RecordModalPayload> & { record: Record<string, any> }>(
         `/records/${modalPayload.table}/${modalPayload.record.id}`,
         {
@@ -638,6 +719,7 @@ export default function App() {
       );
 
       setModalPayload({
+        mode: 'edit',
         table: updated.table || modalPayload.table,
         columns: updated.columns || modalPayload.columns,
         record: updated.record,
@@ -872,6 +954,15 @@ export default function App() {
                 <RefreshCw className={`size-4 ${dataLoading ? 'animate-spin' : ''}`} />
                 Actualiser
               </button>
+
+              {tabToEntity[activeTab] ? (
+                <button
+                  onClick={openCreateRecord}
+                  className="flex items-center gap-2 rounded-2xl bg-indigo-500 px-4 py-3 text-sm font-medium text-white hover:bg-indigo-400"
+                >
+                  Créer
+                </button>
+              ) : null}
 
               <button className="rounded-2xl border border-slate-200 bg-white p-3 text-slate-600 hover:bg-slate-50">
                 <Bell className="size-4" />

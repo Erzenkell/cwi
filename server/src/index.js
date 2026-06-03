@@ -8,6 +8,7 @@ import authRoutes from './routes/auth.routes.js';
 import entityRoutes from './routes/entities.routes.js';
 import dashboardRoutes from './routes/dashboard.routes.js';
 import adminRoutes from './routes/admin.routes.js';
+import recordRoutes from './routes/records.routes.js';
 
 dotenv.config();
 
@@ -33,6 +34,7 @@ app.get('/api/health', async (_, res) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/entities', entityRoutes);
 app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/records', recordRoutes);
 app.use('/api/admin', adminRoutes);
 
 app.listen(PORT, () => {

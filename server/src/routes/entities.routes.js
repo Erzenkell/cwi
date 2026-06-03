@@ -19,6 +19,20 @@ import {
 const router = Router();
 router.use(authenticate);
 
+function entityMeta(alias, columns, entityName) {
+  if (!hasColumn(columns, 'id')) {
+    return `
+      NULL AS _id,
+      '${entityName}' AS _entity
+    `;
+  }
+
+  return `
+    ${alias}.id AS _id,
+    '${entityName}' AS _entity
+  `;
+}
+
 async function accountsView() {
   const missing = await emptyIfMissing('accounts');
   if (missing) return missing;
@@ -27,6 +41,7 @@ async function accountsView() {
 
   return query(`
     SELECT
+      ${entityMeta('a', a, 'accounts')},
       ${textExpr('a', a, ['name', 'company', 'account_name'])} AS nom,
       ${textExpr('a', a, ['category', 'sector', 'industry', 'account_type', 'type'])} AS categorie,
       ${textExpr('a', a, ['email', 'email_address'])} AS email,
@@ -69,6 +84,7 @@ async function contactsView() {
 
   return query(`
     SELECT
+      ${entityMeta('c', c, 'contacts')},
       ${concatNameExpr('c', c)} AS nom,
       ${canJoinAccount ? textExpr('a', a, ['name', 'company', 'account_name']) : `'—'`} AS compte,
       ${textExpr('c', c, ['email', 'alt_email', 'email_address'])} AS email,
@@ -112,6 +128,7 @@ async function opportunitiesView() {
 
   return query(`
     SELECT
+      ${entityMeta('o', o, 'opportunities')},
       ${textExpr('o', o, ['name', 'label', 'title', 'subject'])} AS opportunite,
       ${canJoinAccount ? textExpr('a', a, ['name', 'company', 'account_name']) : `'—'`} AS compte,
       ${moneyExpr('o', o, ['amount', 'value', 'revenue', 'budget'])} AS montant,
@@ -128,20 +145,26 @@ async function opportunitiesView() {
 }
 
 async function suppliersView() {
-  const missing = await emptyIfMissing('suppliers');
-  if (missing) return missing;
+  const tableName = (await hasTable('suppliers'))
+    ? 'suppliers'
+    : (await hasTable('subcontractors'))
+      ? 'subcontractors'
+      : null;
 
-  const s = await getColumns('suppliers');
+  if (!tableName) return { rows: [] };
+
+  const s = await getColumns(tableName);
 
   return query(`
     SELECT
+      ${entityMeta('s', s, tableName)},
       ${concatNameExpr('s', s)} AS nom,
       ${textExpr('s', s, ['company', 'company_name', 'name', 'business_name'])} AS societe,
       ${textExpr('s', s, ['email', 'alt_email', 'email_address'])} AS email,
       ${textExpr('s', s, ['phone', 'alt_phone', 'mobile', 'telephone'])} AS telephone,
       ${textExpr('s', s, ['location', 'city', 'address', 'country'])} AS localisation,
       ${textExpr('s', s, ['speciality', 'specialty', 'skills', 'service_type'])} AS specialite
-    FROM suppliers s
+    FROM ${tableName} s
     ${whereNotDeleted('s', s)}
     ${orderBy('s', s)}
     LIMIT 50
@@ -156,6 +179,7 @@ async function leadsView() {
 
   return query(`
     SELECT
+      ${entityMeta('l', l, 'leads')},
       ${concatNameExpr('l', l)} AS nom,
       ${textExpr('l', l, ['company', 'company_name', 'account_name'])} AS societe,
       ${textExpr('l', l, ['status', 'state'])} AS statut,
@@ -171,7 +195,12 @@ async function leadsView() {
 }
 
 async function invoicesView() {
-  const tableName = (await hasTable('abstract_invoices')) ? 'abstract_invoices' : ((await hasTable('invoices')) ? 'invoices' : null);
+  const tableName = (await hasTable('abstract_invoices'))
+    ? 'abstract_invoices'
+    : (await hasTable('invoices'))
+      ? 'invoices'
+      : null;
+
   if (!tableName) return { rows: [] };
 
   const ai = await getColumns(tableName);
@@ -182,20 +211,33 @@ async function invoicesView() {
 
   const invoiceYear = firstColumn(ai, ['invoice_year', 'year']);
   const invoiceNumber = firstColumn(ai, ['invoice_number', 'number', 'reference']);
-  const referenceExpr = invoiceYear && invoiceNumber
-    ? `CONCAT(COALESCE(ai.${invoiceYear}::text, '—'), '-', COALESCE(ai.${invoiceNumber}::text, ai.id::text))`
-    : textExpr('ai', ai, ['invoice_number', 'number', 'reference', 'id']);
+
+  const referenceExpr =
+    invoiceYear && invoiceNumber
+      ? `CONCAT(COALESCE(ai.${invoiceYear}::text, '—'), '-', COALESCE(ai.${invoiceNumber}::text, ai.id::text))`
+      : textExpr('ai', ai, ['invoice_number', 'number', 'reference', 'id']);
 
   const paidColumn = firstColumn(ai, ['paid', 'is_paid']);
   const statusColumn = firstColumn(ai, ['status', 'state']);
+
   const statusExpr = paidColumn
-    ? `CASE WHEN ai.${paidColumn} IS TRUE THEN 'Payée' ELSE ${statusColumn ? `COALESCE(NULLIF(ai.${statusColumn}::text, ''), 'Ouverte')` : `'Ouverte'`} END`
+    ? `CASE WHEN ai.${paidColumn} IS TRUE THEN 'Payée' ELSE ${
+        statusColumn ? `COALESCE(NULLIF(ai.${statusColumn}::text, ''), 'Ouverte')` : `'Ouverte'`
+      } END`
     : textExpr('ai', ai, ['status', 'state'], 'Ouverte');
+
+  const directClientExpr = textExpr('ai', ai, ['account_name', 'customer_name', 'client', 'client_name']);
+  const clientExpr = directClientExpr !== `'—'`
+    ? directClientExpr
+    : canJoinAccount
+      ? textExpr('a', a, ['name', 'company', 'account_name'])
+      : `'—'`;
 
   return query(`
     SELECT
+      ${entityMeta('ai', ai, tableName)},
       ${referenceExpr} AS reference,
-      ${textExpr('ai', ai, ['account_name', 'customer_name', 'client', 'client_name']) !== `'—'` ? textExpr('ai', ai, ['account_name', 'customer_name', 'client', 'client_name']) : (canJoinAccount ? textExpr('a', a, ['name', 'company', 'account_name']) : `'—'`)} AS client,
+      ${clientExpr} AS client,
       ${moneyExpr('ai', ai, ['amount', 'total_ttc', 'total', 'total_amount'])} AS montant,
       ${percentExpr('ai', ai, ['vat', 'vat_rate', 'tax_rate'])} AS tva,
       ${statusExpr} AS statut,
@@ -229,6 +271,7 @@ router.get('/', async (_req, res) => {
       invoices: invoices.rows,
     });
   } catch (err) {
+    console.error(err);
     res.status(500).json({ message: err.message });
   }
 });

@@ -165,24 +165,6 @@ function formatValue(value: string | number | null | undefined) {
   return value;
 }
 
-function normalizeRows(rows: EntityRow[], columns: string[]) {
-  return rows.map((row) => {
-    const values = Object.values(row);
-
-    if (values.length === columns.length) {
-      return row;
-    }
-
-    const normalized: EntityRow = {};
-
-    columns.forEach((column, index) => {
-      normalized[column] = values[index] ?? '—';
-    });
-
-    return normalized;
-  });
-}
-
 function LoginCard({
   onLogin,
   loading,
@@ -290,7 +272,36 @@ function KpiCard({ label, value, icon }: { label: string; value: string; icon: R
   );
 }
 
-function DataTable({ columns, rows }: { columns: string[]; rows: EntityRow[] }) {
+function getDisplayRow(row: EntityRow) {
+  return Object.fromEntries(
+    Object.entries(row).filter(([key]) => !key.startsWith('_'))
+  );
+}
+
+function normalizeRows(rows: EntityRow[], columns: string[]) {
+  return rows.map((row) => {
+    const displayRow = getDisplayRow(row);
+    const values = Object.values(displayRow);
+
+    const normalized: EntityRow = {};
+
+    columns.forEach((column, index) => {
+      normalized[column] = values[index] ?? '—';
+    });
+
+    return normalized;
+  });
+}
+
+function DataTable({
+  columns,
+  rows,
+  onRowClick,
+}: {
+  columns: string[];
+  rows: EntityRow[];
+  onRowClick?: (row: EntityRow) => void;
+}) {
   const safeRows = normalizeRows(rows, columns);
 
   return (
@@ -315,15 +326,17 @@ function DataTable({ columns, rows }: { columns: string[]; rows: EntityRow[] }) 
                 </td>
               </tr>
             ) : (
-              safeRows.map((row, index) => (
-                <tr key={index} className="border-t border-slate-100 text-slate-700">
-                  {Object.values(row)
-                    .slice(0, columns.length)
-                    .map((value, idx) => (
-                      <td key={idx} className="px-4 py-3">
-                        {formatValue(value)}
-                      </td>
-                    ))}
+              safeRows.map((displayRow, index) => (
+                <tr
+                  key={index}
+                  onClick={() => onRowClick?.(rows[index])}
+                  className="cursor-pointer border-t border-slate-100 text-slate-700 transition hover:bg-indigo-50/60"
+                >
+                  {columns.map((column) => (
+                    <td key={column} className="px-4 py-3">
+                      {formatValue(displayRow[column])}
+                    </td>
+                  ))}
                 </tr>
               ))
             )}
@@ -337,9 +350,11 @@ function DataTable({ columns, rows }: { columns: string[]; rows: EntityRow[] }) 
 function Panel({
   activeTab,
   payload,
+  onRowClick,
 }: {
   activeTab: Tab;
   payload: EntityPayload & { summaryCards?: DashboardStats };
+  onRowClick: (row: EntityRow) => void;
 }) {
   if (activeTab === 'SYNTHÈSE') {
     return (
@@ -368,7 +383,198 @@ function Panel({
 
   const rows = payload[tabToKey[activeTab]] || [];
 
-  return <DataTable columns={tabMeta[activeTab].columns} rows={rows} />;
+  return (
+    <DataTable
+      columns={tabMeta[activeTab].columns}
+      rows={rows}
+      onRowClick={onRowClick}
+    />
+  );
+}
+
+type DbColumn = {
+  column_name: string;
+  data_type: string;
+  is_nullable: 'YES' | 'NO';
+};
+
+type RecordModalPayload = {
+  table: string;
+  columns: DbColumn[];
+  record: Record<string, any>;
+};
+
+function isReadOnlyColumn(column: string) {
+  return [
+    'id',
+    'created_at',
+    'updated_at',
+    'deleted_at',
+    'password',
+    'password_hash',
+    'encrypted_password',
+    'reset_password_token',
+    'remember_token',
+    'confirmation_token',
+  ].includes(column);
+}
+
+function inputTypeFromPgType(type: string) {
+  if (type.includes('integer') || type.includes('numeric') || type.includes('double')) return 'number';
+  if (type.includes('timestamp') || type.includes('date')) return 'datetime-local';
+  if (type.includes('boolean')) return 'checkbox';
+  return 'text';
+}
+
+function normalizeInputValue(value: any) {
+  if (value === null || value === undefined) return '';
+
+  if (typeof value === 'string' && value.includes('T')) {
+    return value.slice(0, 16);
+  }
+
+  return value;
+}
+
+function EditRecordModal({
+  payload,
+  saving,
+  error,
+  onClose,
+  onSave,
+}: {
+  payload: RecordModalPayload;
+  saving: boolean;
+  error: string | null;
+  onClose: () => void;
+  onSave: (values: Record<string, any>) => void;
+}) {
+  const [form, setForm] = useState<Record<string, any>>(payload.record);
+
+  useEffect(() => {
+    setForm(payload.record);
+  }, [payload.record]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
+      <div className="max-h-[90vh] w-full max-w-5xl overflow-hidden rounded-[28px] bg-white shadow-2xl">
+        <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+          <div>
+            <div className="text-xs uppercase tracking-[0.2em] text-slate-400">
+              {payload.table}
+            </div>
+            <h2 className="mt-1 text-2xl font-semibold text-slate-900">
+              Modifier l’enregistrement #{payload.record.id}
+            </h2>
+          </div>
+
+          <button
+            onClick={onClose}
+            className="rounded-xl border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50"
+          >
+            Fermer
+          </button>
+        </div>
+
+        <div className="max-h-[65vh] overflow-y-auto p-6">
+          {error ? (
+            <div className="mb-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+              {error}
+            </div>
+          ) : null}
+
+          <div className="grid gap-4 md:grid-cols-2">
+            {payload.columns.map((column) => {
+              const name = column.column_name;
+              const readOnly = isReadOnlyColumn(name);
+              const value = form[name];
+
+              if (column.data_type === 'boolean') {
+                return (
+                  <label
+                    key={name}
+                    className="flex items-center justify-between rounded-2xl border border-slate-200 p-4"
+                  >
+                    <div>
+                      <div className="font-medium text-slate-800">{name}</div>
+                      <div className="text-xs text-slate-400">{column.data_type}</div>
+                    </div>
+
+                    <input
+                      type="checkbox"
+                      checked={Boolean(value)}
+                      disabled={readOnly}
+                      onChange={(e) => setForm({ ...form, [name]: e.target.checked })}
+                    />
+                  </label>
+                );
+              }
+
+              if (column.data_type === 'text' || column.data_type.includes('json')) {
+                return (
+                  <div key={name} className="md:col-span-2">
+                    <label className="mb-2 block text-sm font-medium text-slate-700">
+                      {name}
+                      <span className="ml-2 text-xs font-normal text-slate-400">
+                        {column.data_type}
+                      </span>
+                    </label>
+
+                    <textarea
+                      value={
+                        typeof value === 'object' && value !== null
+                          ? JSON.stringify(value, null, 2)
+                          : normalizeInputValue(value)
+                      }
+                      disabled={readOnly}
+                      onChange={(e) => setForm({ ...form, [name]: e.target.value })}
+                      className="min-h-24 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-indigo-400 disabled:bg-slate-100 disabled:text-slate-400"
+                    />
+                  </div>
+                );
+              }
+
+              return (
+                <div key={name}>
+                  <label className="mb-2 block text-sm font-medium text-slate-700">
+                    {name}
+                    <span className="ml-2 text-xs font-normal text-slate-400">
+                      {column.data_type}
+                    </span>
+                  </label>
+
+                  <input
+                    type={inputTypeFromPgType(column.data_type)}
+                    value={normalizeInputValue(value)}
+                    disabled={readOnly}
+                    onChange={(e) => setForm({ ...form, [name]: e.target.value })}
+                    className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-indigo-400 disabled:bg-slate-100 disabled:text-slate-400"
+                  />
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="flex items-center justify-end gap-3 border-t border-slate-200 px-6 py-4">
+          <button
+            onClick={onClose}
+            className="rounded-2xl border border-slate-200 px-5 py-3 text-sm text-slate-600 hover:bg-slate-50"
+          >
+            Annuler
+          </button>
+
+          <button
+            disabled={saving}
+            onClick={() => onSave(form)}
+            className="rounded-2xl bg-indigo-500 px-5 py-3 text-sm font-medium text-white hover:bg-indigo-400 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {saving ? 'Enregistrement...' : 'Enregistrer'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export default function App() {
@@ -379,6 +585,71 @@ export default function App() {
   const [bootstrapping, setBootstrapping] = useState(true);
   const [dataLoading, setDataLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [modalPayload, setModalPayload] = useState<RecordModalPayload | null>(null);
+  const [modalLoading, setModalLoading] = useState(false);
+  const [modalSaving, setModalSaving] = useState(false);
+  const [modalError, setModalError] = useState<string | null>(null);
+
+  async function openRecord(row: EntityRow) {
+    if (!auth?.token) return;
+
+    const entity = row._entity;
+    const id = row._id;
+
+    if (!entity || !id) {
+      setError("Impossible d'ouvrir cet élément : identifiant manquant.");
+      return;
+    }
+
+    setModalLoading(true);
+    setModalError(null);
+
+    try {
+      const data = await api<RecordModalPayload>(
+        `/records/${entity}/${id}`,
+        {},
+        auth.token,
+        setAuth
+      );
+
+      setModalPayload(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Ouverture impossible');
+    } finally {
+      setModalLoading(false);
+    }
+  }
+
+  async function saveRecord(values: Record<string, any>) {
+    if (!auth?.token || !modalPayload) return;
+
+    setModalSaving(true);
+    setModalError(null);
+
+    try {
+      const updated = await api<Partial<RecordModalPayload> & { record: Record<string, any> }>(
+        `/records/${modalPayload.table}/${modalPayload.record.id}`,
+        {
+          method: 'PATCH',
+          body: JSON.stringify(values),
+        },
+        auth.token,
+        setAuth
+      );
+
+      setModalPayload({
+        table: updated.table || modalPayload.table,
+        columns: updated.columns || modalPayload.columns,
+        record: updated.record,
+      });
+
+      await refreshData();
+    } catch (err) {
+      setModalError(err instanceof Error ? err.message : 'Enregistrement impossible');
+    } finally {
+      setModalSaving(false);
+    }
+  }
 
   const tabs = useMemo(() => {
     if (auth?.user.role === 'admin') return adminTabs;
@@ -622,10 +893,32 @@ export default function App() {
           ) : null}
 
           <div className="mt-6">
-            <Panel activeTab={activeTab} payload={payload} />
+            <Panel activeTab={activeTab} payload={payload} onRowClick={openRecord} />
           </div>
         </section>
       </div>
+
+      {modalLoading ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 text-white backdrop-blur-sm">
+          <div className="flex items-center gap-3 rounded-3xl border border-white/10 bg-white/10 px-8 py-6">
+            <RefreshCw className="size-5 animate-spin" />
+            Chargement de l’enregistrement...
+          </div>
+        </div>
+      ) : null}
+
+      {modalPayload ? (
+        <EditRecordModal
+          payload={modalPayload}
+          saving={modalSaving}
+          error={modalError}
+          onClose={() => {
+            setModalPayload(null);
+            setModalError(null);
+          }}
+          onSave={saveRecord}
+        />
+      ) : null}
     </main>
   );
 }

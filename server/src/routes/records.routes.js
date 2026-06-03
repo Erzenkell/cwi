@@ -1,0 +1,164 @@
+import { Router } from 'express';
+import { authenticate } from '../auth.js';
+import { query } from '../db.js';
+
+const router = Router();
+router.use(authenticate);
+
+const allowedTables = {
+  accounts: 'accounts',
+  contacts: 'contacts',
+  opportunities: 'opportunities',
+  subcontractors: 'subcontractors',
+  suppliers: 'suppliers',
+  leads: 'leads',
+  invoices: 'invoices',
+  abstract_invoices: 'abstract_invoices',
+  users: 'users',
+  groups: 'groups',
+};
+
+function resolveTable(key) {
+  return allowedTables[key] || null;
+}
+
+async function getColumns(tableName) {
+  const result = await query(
+    `
+    SELECT column_name, data_type, is_nullable
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = $1
+    ORDER BY ordinal_position
+    `,
+    [tableName]
+  );
+
+  return result.rows;
+}
+
+async function tableHasColumn(tableName, columnName) {
+  const result = await query(
+    `
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = $1
+      AND column_name = $2
+    LIMIT 1
+    `,
+    [tableName, columnName]
+  );
+
+  return result.rows.length > 0;
+}
+
+function normalizeValue(value) {
+  if (value === '') return null;
+  return value;
+}
+
+router.get('/:entity/:id', async (req, res) => {
+  try {
+    const tableName = resolveTable(req.params.entity);
+
+    if (!tableName) {
+      return res.status(400).json({ message: 'Table non autorisée' });
+    }
+
+    const hasId = await tableHasColumn(tableName, 'id');
+
+    if (!hasId) {
+      return res.status(400).json({ message: `La table ${tableName} n'a pas de colonne id` });
+    }
+
+    const columns = await getColumns(tableName);
+
+    const result = await query(
+      `
+      SELECT *
+      FROM ${tableName}
+      WHERE id = $1
+      LIMIT 1
+      `,
+      [req.params.id]
+    );
+
+    const record = result.rows[0];
+
+    if (!record) {
+      return res.status(404).json({ message: 'Enregistrement introuvable' });
+    }
+
+    res.json({
+        table: tableName,
+        columns,
+        record: result.rows[0],
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Erreur chargement enregistrement' });
+  }
+});
+
+router.patch('/:entity/:id', async (req, res) => {
+  try {
+    const tableName = resolveTable(req.params.entity);
+
+    if (!tableName) {
+      return res.status(400).json({ message: 'Table non autorisée' });
+    }
+
+    const columns = await getColumns(tableName);
+    const columnNames = columns.map((c) => c.column_name);
+
+    const forbiddenColumns = new Set([
+      'id',
+      'created_at',
+      'updated_at',
+      'deleted_at',
+      'password',
+      'password_hash',
+      'encrypted_password',
+      'reset_password_token',
+      'remember_token',
+      'confirmation_token',
+    ]);
+
+    const updates = Object.entries(req.body)
+      .filter(([key]) => columnNames.includes(key))
+      .filter(([key]) => !forbiddenColumns.has(key));
+
+    if (updates.length === 0) {
+      return res.status(400).json({ message: 'Aucun champ modifiable reçu' });
+    }
+
+    const setSql = updates
+      .map(([key], index) => `${key} = $${index + 1}`)
+      .join(', ');
+
+    const values = updates.map(([, value]) => normalizeValue(value));
+
+    const hasUpdatedAt = columnNames.includes('updated_at');
+
+    const sql = `
+      UPDATE ${tableName}
+      SET ${setSql}
+      ${hasUpdatedAt ? ', updated_at = NOW()' : ''}
+      WHERE id = $${values.length + 1}
+      RETURNING *
+    `;
+
+    const result = await query(sql, [...values, req.params.id]);
+
+    res.json({
+      table: tableName,
+      record: result.rows[0],
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Erreur mise à jour enregistrement' });
+  }
+});
+
+export default router;

@@ -1,4 +1,4 @@
-import { EInvoiceProvider } from '../einvoice-provider.interface.js';
+import { EInvoiceProvider } from './einvoice-provider.interface.js';
 
 export class MockEInvoiceProvider extends EInvoiceProvider {
   async sendInvoice(invoice) {

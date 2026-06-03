@@ -6,7 +6,7 @@ import { nextInvoiceNumber } from './invoice-number.service.js';
 import { generateInvoiceXml } from './invoice-xml.service.js';
 import { generateFacturXPlaceholder } from './facturx.service.js';
 import { validateInvoiceForEInvoicing } from './invoice-validation.service.js';
-import { MockEInvoiceProvider } from './providers/mock.provider.js';
+import { MockEInvoiceProvider } from './mock.provider.js';
 
 function round2(value) {
   return Math.round((Number(value) + Number.EPSILON) * 100) / 100;

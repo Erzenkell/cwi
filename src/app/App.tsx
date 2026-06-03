@@ -70,33 +70,33 @@ const tabToKey: Record<Tab, string> = {
 const tabMeta: Record<Tab, { title: string; subtitle: string; columns: string[] }> = {
   COMPTES: {
     title: 'Comptes',
-    subtitle: 'Référentiel des entreprises clientes et partenaires.',
-    columns: ['Nom', 'Secteur', 'Responsable', 'Statut', 'CA'],
+    subtitle: 'Comptes issus de la table accounts : coordonnées, catégorie, localisation et note.',
+    columns: ['Nom', 'Catégorie', 'Email', 'Téléphone', 'Localisation', 'Note'],
   },
   CONTACTS: {
     title: 'Contacts',
-    subtitle: 'Interlocuteurs clés rattachés aux comptes.',
-    columns: ['Nom', 'Société', 'Email', 'Fonction'],
+    subtitle: 'Contacts rattachés aux comptes via account_contacts.',
+    columns: ['Nom', 'Compte', 'Email', 'Téléphone', 'Fonction', 'Localisation'],
   },
   'OPPORTUNITÉS': {
     title: 'Opportunités',
-    subtitle: 'Pipeline commercial et avancement des affaires.',
-    columns: ['Affaire', 'Valeur', 'Étape', 'Probabilité'],
+    subtitle: 'Pipeline issu des opportunités : montant, étape, probabilité, langues et type de prestation.',
+    columns: ['Opportunité', 'Compte', 'Montant', 'Étape', 'Probabilité', 'Langues', 'Prestation'],
   },
   'SOUS-TRAITANT': {
     title: 'Sous-traitants',
-    subtitle: 'Partenaires externes, notes et disponibilité.',
-    columns: ['Nom', 'Spécialité', 'Note', 'Disponibilité'],
+    subtitle: 'Sous-traitants issus de la table suppliers.',
+    columns: ['Nom', 'Société', 'Email', 'Téléphone', 'Localisation', 'Spécialité'],
   },
   PISTES: {
     title: 'Pistes',
-    subtitle: 'Prospects entrants, score et attribution commerciale.',
-    columns: ['Société', 'Source', 'Score', 'Assigné à'],
+    subtitle: 'Pistes commerciales issues de la table leads.',
+    columns: ['Nom', 'Société', 'Statut', 'Source', 'Email', 'Téléphone', 'Note'],
   },
   FACTURES: {
     title: 'Factures',
-    subtitle: 'Suivi de facturation, état d’émission et encaissement.',
-    columns: ['Référence', 'Client', 'Montant', 'Statut'],
+    subtitle: 'Factures issues de abstract_invoices avec montant, TVA, paiement et dates.',
+    columns: ['Référence', 'Client', 'Montant', 'TVA', 'Statut', 'Date envoi', 'Date paiement'],
   },
   SYNTHÈSE: {
     title: 'Synthèse',
@@ -105,18 +105,18 @@ const tabMeta: Record<Tab, { title: string; subtitle: string; columns: string[] 
   },
   'MEILLEURS CLIENTS': {
     title: 'Meilleurs clients',
-    subtitle: 'Classement des comptes par chiffre d’affaires.',
-    columns: ['Nom', 'CA', 'Santé'],
+    subtitle: 'Classement calculé depuis les montants des factures.',
+    columns: ['Nom', 'CA facturé', 'Factures', 'Santé'],
   },
   UTILISATEURS: {
     title: 'Utilisateurs',
     subtitle: 'Administration des comptes d’accès et des rôles.',
-    columns: ['Nom', 'Email', 'Rôle', 'Groupe'],
+    columns: ['Nom', 'Email', 'Titre', 'Rôle', 'Groupe'],
   },
   GROUPES: {
     title: 'Groupes',
     subtitle: 'Segmentation interne pour pilotage et permissions.',
-    columns: ['Nom', 'Description', 'Membres'],
+    columns: ['Nom', 'Membres', 'Créé le'],
   },
 };
 
@@ -150,9 +150,33 @@ function LoginCard({ onLogin, loading, error }: { onLogin: (email: string, passw
 
   return (
     <div className="w-full max-w-5xl grid gap-8 rounded-[32px] border border-white/10 bg-white/[0.04] p-4 shadow-2xl shadow-black/20 backdrop-blur md:grid-cols-[1.2fr_0.8fr] md:p-8">
+      <div className="rounded-[28px] bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-950 p-8 text-white">
+        <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/10 px-3 py-1 text-sm">
+          <LayoutDashboard className="size-4" /> CRM React + Node
+        </div>
+        <h1 className="mt-6 text-4xl font-semibold leading-tight">CRM aligné sur vos specs métier.</h1>
+        <p className="mt-4 max-w-xl text-sm text-slate-300 md:text-base">
+          Les vues du CRM sont alignées sur le dump PostgreSQL fourni : comptes, contacts, opportunités, pistes, factures,
+          sous-traitants, synthèse, meilleurs clients, utilisateurs et groupes.
+        </p>
+        <div className="mt-8 grid gap-4 sm:grid-cols-3">
+          {[
+            ['10', 'modules'],
+            ['JWT', 'auth backend'],
+            ['Postgres', 'db dockerisée'],
+          ].map(([value, label]) => (
+            <div key={label} className="rounded-2xl border border-white/10 bg-white/10 p-4">
+              <div className="text-2xl font-semibold">{value}</div>
+              <div className="text-sm text-slate-300">{label}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
       <div className="flex flex-col justify-between rounded-[28px] bg-slate-950/70 p-8 text-white ring-1 ring-white/10">
         <div>
           <h2 className="text-2xl font-semibold">Connexion</h2>
+          <p className="mt-2 text-sm text-slate-400">Le frontend se connecte au backend Node et charge les données depuis le schéma PostgreSQL.</p>
         </div>
 
         <div className="mt-8 space-y-4">

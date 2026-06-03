@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: postgres:16-alpine
+    image: postgres:17-alpine
     container_name: wordsinvest-crm-db
     restart: unless-stopped
     environment:
@@ -8,10 +8,10 @@ services:
       POSTGRES_USER: crm_user
       POSTGRES_PASSWORD: crm_password
     ports:
-      - '5432:5432'
+      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./server/sql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - ./server/sql:/docker-entrypoint-initdb.d:ro
 
 volumes:
   postgres_data:

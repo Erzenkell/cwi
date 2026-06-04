@@ -80,6 +80,23 @@ router.get('/:entity/schema', async (req, res) => {
   }
 });
 
+router.get('/options/users', async (_req, res) => {
+  try {
+    const result = await query(`
+      SELECT
+        id,
+        full_name AS label
+      FROM crm_app_users
+      ORDER BY full_name ASC
+    `);
+
+    res.json({ users: result.rows });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Erreur chargement utilisateurs' });
+  }
+});
+
 router.get('/:entity/:id', async (req, res) => {
   try {
     const tableName = resolveTable(req.params.entity);

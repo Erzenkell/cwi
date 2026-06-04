@@ -44,6 +44,11 @@ type DashboardStats = { label: string; value: string }[];
 type EntityRow = Record<string, string | number | boolean | null>;
 type EntityPayload = Record<string, EntityRow[]>;
 
+type UserOption = {
+  id: number;
+  label: string;
+};
+
 const API_URL = (import.meta as any).env?.VITE_API_URL || 'http://localhost:4000/api';
 
 const employeeTabs: { label: EmployeeTab; icon: ComponentType<any> }[] = [
@@ -773,16 +778,37 @@ function EditRecordModal({
   payload,
   saving,
   error,
+  token,
   onClose,
   onSave,
 }: {
   payload: RecordModalPayload;
   saving: boolean;
   error: string | null;
+  token: string;
   onClose: () => void;
   onSave: (values: Record<string, any>) => void;
 }) {
   const [form, setForm] = useState<Record<string, any>>(payload.record);
+  const [userOptions, setUserOptions] = useState<UserOption[]>([]);
+
+  useEffect(() => {
+    const hasAssignedTo = payload.columns.some(
+      (column) => column.column_name === 'assigned_to'
+    );
+
+    if (!hasAssignedTo) return;
+
+    fetch(`${API_URL}/records/options/users`, {
+      credentials: 'include',
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    })
+      .then((res) => res.json())
+      .then((data) => setUserOptions(data.users || []))
+      .catch(() => setUserOptions([]));
+  }, [payload.columns, token]);
 
   useEffect(() => {
     setForm(payload.record);
@@ -824,6 +850,39 @@ function EditRecordModal({
               const readOnly = isReadOnlyColumn(name);
               const value = form[name];
 
+              if (name === 'assigned_to') {
+                return (
+                  <div key={name}>
+                    <label className="mb-2 block text-sm font-medium text-slate-700">
+                      assigned_to
+                      <span className="ml-2 text-xs font-normal text-slate-400">
+                        utilisateur
+                      </span>
+                    </label>
+
+                    <select
+                      value={form[name] ?? ''}
+                      disabled={readOnly}
+                      onChange={(e) =>
+                        setForm({
+                          ...form,
+                          [name]: e.target.value === '' ? null : Number(e.target.value),
+                        })
+                      }
+                      className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-indigo-400 disabled:bg-slate-100 disabled:text-slate-400"
+                    >
+                      <option value="">Non assigné</option>
+
+                      {userOptions.map((user) => (
+                        <option key={user.id} value={user.id}>
+                          {user.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                );
+              }
+
               if (column.data_type === 'boolean') {
                 return (
                   <label
@@ -834,6 +893,7 @@ function EditRecordModal({
                       <div className="font-medium text-slate-800">{name}</div>
                       <div className="text-xs text-slate-400">{column.data_type}</div>
                     </div>
+                    
 
                     <input
                       type="checkbox"
@@ -1324,6 +1384,7 @@ export default function App() {
           payload={modalPayload}
           saving={modalSaving}
           error={modalError}
+          token={auth.token}
           onClose={() => {
             setModalPayload(null);
             setModalError(null);

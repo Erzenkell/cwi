@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ComponentType, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ComponentType, type ReactNode, type FormEvent } from 'react';
 import {
   Bell,
   BriefcaseBusiness,
@@ -21,7 +21,13 @@ import { refreshSession, logout } from './lib/auth';
 
 type Role = 'employee' | 'admin';
 type EmployeeTab = 'COMPTES' | 'CONTACTS' | 'OPPORTUNITÉS' | 'SOUS-TRAITANT';
-type AdminTab = 'PISTES' | 'FACTURES' | 'SYNTHÈSE' | 'MEILLEURS CLIENTS' | 'UTILISATEURS' | 'GROUPES';
+type AdminTab =
+  | 'PISTES'
+  | 'FACTURES'
+  | 'SYNTHÈSE'
+  | 'MEILLEURS CLIENTS'
+  | 'GROUPES'
+  | 'ADMINISTRATION';
 type Tab = EmployeeTab | AdminTab;
 
 type AuthResponse = {
@@ -35,7 +41,7 @@ type AuthResponse = {
 };
 
 type DashboardStats = { label: string; value: string }[];
-type EntityRow = Record<string, string | number | null>;
+type EntityRow = Record<string, string | number | boolean | null>;
 type EntityPayload = Record<string, EntityRow[]>;
 
 const API_URL = (import.meta as any).env?.VITE_API_URL || 'http://localhost:4000/api';
@@ -52,8 +58,8 @@ const adminTabs: { label: AdminTab; icon: ComponentType<any> }[] = [
   { label: 'FACTURES', icon: FileText },
   { label: 'SYNTHÈSE', icon: ChartNoAxesCombined },
   { label: 'MEILLEURS CLIENTS', icon: TrendingUp },
-  { label: 'UTILISATEURS', icon: UserCog },
   { label: 'GROUPES', icon: Layers3 },
+  { label: 'ADMINISTRATION', icon: UserCog },
 ];
 
 const tabToKey: Record<Tab, string> = {
@@ -65,8 +71,8 @@ const tabToKey: Record<Tab, string> = {
   FACTURES: 'invoices',
   SYNTHÈSE: 'summary',
   'MEILLEURS CLIENTS': 'topClients',
-  UTILISATEURS: 'users',
   GROUPES: 'groups',
+  ADMINISTRATION: 'administration',
 };
 
 const tabToEntity: Record<Tab, string | null> = {
@@ -78,8 +84,8 @@ const tabToEntity: Record<Tab, string | null> = {
   FACTURES: 'abstract_invoices',
   SYNTHÈSE: null,
   'MEILLEURS CLIENTS': null,
-  UTILISATEURS: 'users',
   GROUPES: 'groups',
+  ADMINISTRATION: null,
 };
 
 const tabMeta: Record<Tab, { title: string; subtitle: string; columns: string[] }> = {
@@ -123,15 +129,15 @@ const tabMeta: Record<Tab, { title: string; subtitle: string; columns: string[] 
     subtitle: 'Classement calculé depuis les montants des factures.',
     columns: ['Nom', 'CA facturé', 'Factures', 'Santé'],
   },
-  UTILISATEURS: {
-    title: 'Utilisateurs',
-    subtitle: 'Administration des comptes d’accès et des rôles.',
-    columns: ['Nom', 'Email', 'Titre', 'Rôle', 'Groupe'],
-  },
   GROUPES: {
     title: 'Groupes',
     subtitle: 'Segmentation interne pour pilotage et permissions.',
     columns: ['Nom', 'Membres', 'Créé le'],
+  },
+  ADMINISTRATION: {
+    title: 'Administration',
+    subtitle: 'Gestion des utilisateurs de l’application CRM.',
+    columns: [],
   },
 };
 
@@ -172,7 +178,77 @@ async function api<T>(
   return response.json() as Promise<T>;
 }
 
-function formatValue(value: string | number | null | undefined) {
+type AppUser = {
+  id: number;
+  email: string;
+  role: Role;
+  full_name: string;
+  created_at: string;
+};
+
+async function fetchAppUsers(token: string, onTokenRefresh?: (data: AuthResponse) => void) {
+  return api<{ users: AppUser[] }>('/app-users', {}, token, onTokenRefresh);
+}
+
+async function createAppUser(
+  token: string,
+  data: {
+    email: string;
+    password: string;
+    role: Role;
+    full_name: string;
+  },
+  onTokenRefresh?: (data: AuthResponse) => void,
+) {
+  return api<{ user: AppUser }>(
+    '/app-users',
+    {
+      method: 'POST',
+      body: JSON.stringify(data),
+    },
+    token,
+    onTokenRefresh,
+  );
+}
+
+async function updateAppUser(
+  token: string,
+  id: number,
+  data: Partial<{
+    email: string;
+    password: string;
+    role: Role;
+    full_name: string;
+  }>,
+  onTokenRefresh?: (data: AuthResponse) => void,
+) {
+  return api<{ user: AppUser }>(
+    `/app-users/${id}`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    },
+    token,
+    onTokenRefresh,
+  );
+}
+
+async function deleteAppUser(
+  token: string,
+  id: number,
+  onTokenRefresh?: (data: AuthResponse) => void,
+) {
+  return api<{ success: boolean }>(
+    `/app-users/${id}`,
+    {
+      method: 'DELETE',
+    },
+    token,
+    onTokenRefresh,
+  );
+}
+
+function formatValue(value: string | number | boolean | null | undefined) {
   if (value === null || value === undefined || value === '') return '—';
   if (typeof value === 'number') return Number.isInteger(value) ? String(value) : String(value);
   return value;
@@ -191,43 +267,10 @@ function LoginCard({
   const [password, setPassword] = useState('password123');
 
   return (
-    <div className="w-full max-w-5xl grid gap-8 rounded-[32px] border border-white/10 bg-white/[0.04] p-4 shadow-2xl shadow-black/20 backdrop-blur md:grid-cols-[1.2fr_0.8fr] md:p-8">
-      <div className="rounded-[28px] bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-950 p-8 text-white">
-        <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/10 px-3 py-1 text-sm">
-          <LayoutDashboard className="size-4" /> CRM React + Node
-        </div>
-
-        <h1 className="mt-6 text-4xl font-semibold leading-tight">
-          CRM aligné sur vos specs métier.
-        </h1>
-
-        <p className="mt-4 max-w-xl text-sm text-slate-300 md:text-base">
-          Les vues du CRM sont alignées sur le dump PostgreSQL fourni : comptes,
-          contacts, opportunités, pistes, factures, sous-traitants, synthèse,
-          meilleurs clients, utilisateurs et groupes.
-        </p>
-
-        <div className="mt-8 grid gap-4 sm:grid-cols-3">
-          {[
-            ['10', 'modules'],
-            ['JWT', 'auth backend'],
-            ['Postgres', 'db dockerisée'],
-          ].map(([value, label]) => (
-            <div key={label} className="rounded-2xl border border-white/10 bg-white/10 p-4">
-              <div className="text-2xl font-semibold">{value}</div>
-              <div className="text-sm text-slate-300">{label}</div>
-            </div>
-          ))}
-        </div>
-      </div>
-
+    <div className=" max-w-3xl gap-8 rounded-[32px] border border-white/10 bg-white/[0.04] p-4 shadow-2xl shadow-black/20 backdrop-blur md:grid-cols-[1.2fr_0.8fr] md:p-8">
       <div className="flex flex-col justify-between rounded-[28px] bg-slate-950/70 p-8 text-white ring-1 ring-white/10">
         <div>
           <h2 className="text-2xl font-semibold">Connexion</h2>
-          <p className="mt-2 text-sm text-slate-400">
-            Le frontend se connecte au backend Node et charge les données depuis
-            PostgreSQL.
-          </p>
         </div>
 
         <div className="mt-8 space-y-4">
@@ -369,6 +412,10 @@ function Panel({
   payload: EntityPayload & { summaryCards?: DashboardStats };
   onRowClick: (row: EntityRow) => void;
 }) {
+  if (activeTab === 'ADMINISTRATION') {
+    return null;
+  }
+
   if (activeTab === 'SYNTHÈSE') {
     return (
       <div className="space-y-6">
@@ -402,6 +449,276 @@ function Panel({
       rows={rows}
       onRowClick={onRowClick}
     />
+  );
+}
+
+
+function AdministrationPanel({
+  auth,
+  onTokenRefresh,
+}: {
+  auth: AuthResponse;
+  onTokenRefresh: (data: AuthResponse) => void;
+}) {
+  const [users, setUsers] = useState<AppUser[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const [form, setForm] = useState({
+    email: '',
+    password: '',
+    full_name: '',
+    role: 'employee' as Role,
+  });
+
+  const [editingId, setEditingId] = useState<number | null>(null);
+
+  async function loadUsers() {
+    setLoading(true);
+    setError(null);
+
+    try {
+      const data = await fetchAppUsers(auth.token, onTokenRefresh);
+      setUsers(data.users);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Chargement impossible');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadUsers();
+  }, [auth.token]);
+
+  function resetForm() {
+    setEditingId(null);
+    setForm({
+      email: '',
+      password: '',
+      full_name: '',
+      role: 'employee',
+    });
+  }
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    setSaving(true);
+    setError(null);
+
+    try {
+      if (editingId) {
+        const payload: Partial<typeof form> = {
+          email: form.email,
+          full_name: form.full_name,
+          role: form.role,
+        };
+
+        if (form.password.trim()) {
+          payload.password = form.password;
+        }
+
+        await updateAppUser(auth.token, editingId, payload, onTokenRefresh);
+      } else {
+        await createAppUser(auth.token, form, onTokenRefresh);
+      }
+
+      resetForm();
+      await loadUsers();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Enregistrement impossible');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function removeUser(id: number) {
+    if (!window.confirm('Supprimer cet utilisateur ?')) return;
+
+    setError(null);
+
+    try {
+      await deleteAppUser(auth.token, id, onTokenRefresh);
+      await loadUsers();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Suppression impossible');
+    }
+  }
+
+  function editUser(user: AppUser) {
+    setEditingId(user.id);
+    setForm({
+      email: user.email,
+      password: '',
+      full_name: user.full_name,
+      role: user.role,
+    });
+  }
+
+  return (
+    <div className="grid gap-6 xl:grid-cols-[420px_1fr]">
+      <form
+        onSubmit={submit}
+        className="rounded-[24px] border border-slate-200 bg-white p-6 shadow-sm"
+      >
+        <h2 className="text-xl font-semibold text-slate-900">
+          {editingId ? 'Modifier un utilisateur' : 'Créer un utilisateur'}
+        </h2>
+
+        <p className="mt-2 text-sm text-slate-500">
+          Ces comptes servent uniquement à se connecter à l’application CRM.
+        </p>
+
+        {error ? (
+          <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+            {error}
+          </div>
+        ) : null}
+
+        <div className="mt-5 space-y-4">
+          <div>
+            <label className="mb-2 block text-sm font-medium text-slate-700">
+              Nom complet
+            </label>
+            <input
+              value={form.full_name}
+              onChange={(e) => setForm({ ...form, full_name: e.target.value })}
+              className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-indigo-400"
+              required
+            />
+          </div>
+
+          <div>
+            <label className="mb-2 block text-sm font-medium text-slate-700">
+              Email
+            </label>
+            <input
+              type="email"
+              value={form.email}
+              onChange={(e) => setForm({ ...form, email: e.target.value })}
+              className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-indigo-400"
+              required
+            />
+          </div>
+
+          <div>
+            <label className="mb-2 block text-sm font-medium text-slate-700">
+              Mot de passe {editingId ? '(laisser vide pour ne pas changer)' : ''}
+            </label>
+            <input
+              type="password"
+              value={form.password}
+              onChange={(e) => setForm({ ...form, password: e.target.value })}
+              className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-indigo-400"
+              required={!editingId}
+            />
+          </div>
+
+          <div>
+            <label className="mb-2 block text-sm font-medium text-slate-700">
+              Rôle
+            </label>
+            <select
+              value={form.role}
+              onChange={(e) => setForm({ ...form, role: e.target.value as Role })}
+              className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-indigo-400"
+            >
+              <option value="employee">Salarié</option>
+              <option value="admin">Administrateur</option>
+            </select>
+          </div>
+
+          <div className="flex gap-3">
+            <button
+              disabled={saving}
+              type="submit"
+              className="rounded-2xl bg-indigo-500 px-5 py-3 text-sm font-medium text-white hover:bg-indigo-400 disabled:opacity-60"
+            >
+              {saving ? 'Enregistrement...' : editingId ? 'Modifier' : 'Créer'}
+            </button>
+
+            {editingId ? (
+              <button
+                type="button"
+                onClick={resetForm}
+                className="rounded-2xl border border-slate-200 px-5 py-3 text-sm text-slate-600 hover:bg-slate-50"
+              >
+                Annuler
+              </button>
+            ) : null}
+          </div>
+        </div>
+      </form>
+
+      <div className="rounded-[24px] border border-slate-200 bg-white shadow-sm">
+        <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
+          <h2 className="text-xl font-semibold text-slate-900">Utilisateurs</h2>
+
+          <button
+            onClick={loadUsers}
+            className="rounded-2xl border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50"
+          >
+            {loading ? 'Chargement...' : 'Actualiser'}
+          </button>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-left text-sm">
+            <thead className="bg-slate-50 text-slate-500">
+              <tr>
+                <th className="px-4 py-3 font-medium">Nom</th>
+                <th className="px-4 py-3 font-medium">Email</th>
+                <th className="px-4 py-3 font-medium">Rôle</th>
+                <th className="px-4 py-3 font-medium">Créé le</th>
+                <th className="px-4 py-3 font-medium">Actions</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              {users.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="px-4 py-8 text-slate-400">
+                    Aucun utilisateur.
+                  </td>
+                </tr>
+              ) : (
+                users.map((user) => (
+                  <tr key={user.id} className="border-t border-slate-100 text-slate-700">
+                    <td className="px-4 py-3">{user.full_name}</td>
+                    <td className="px-4 py-3">{user.email}</td>
+                    <td className="px-4 py-3">
+                      {user.role === 'admin' ? 'Administrateur' : 'Salarié'}
+                    </td>
+                    <td className="px-4 py-3">
+                      {user.created_at ? new Date(user.created_at).toLocaleDateString() : '—'}
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => editUser(user)}
+                          className="rounded-xl border border-slate-200 px-3 py-2 text-xs text-slate-600 hover:bg-slate-50"
+                        >
+                          Modifier
+                        </button>
+
+                        <button
+                          onClick={() => removeUser(user.id)}
+                          disabled={user.id === auth.user.id}
+                          className="rounded-xl border border-rose-200 px-3 py-2 text-xs text-rose-600 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          Supprimer
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -984,7 +1301,11 @@ export default function App() {
           ) : null}
 
           <div className="mt-6">
-            <Panel activeTab={activeTab} payload={payload} onRowClick={openRecord} />
+            {activeTab === 'ADMINISTRATION' ? (
+              <AdministrationPanel auth={auth} onTokenRefresh={setAuth} />
+            ) : (
+              <Panel activeTab={activeTab} payload={payload} onRowClick={openRecord} />
+            )}
           </div>
         </section>
       </div>

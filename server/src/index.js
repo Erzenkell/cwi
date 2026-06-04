@@ -9,6 +9,7 @@ import entityRoutes from './routes/entities.routes.js';
 import dashboardRoutes from './routes/dashboard.routes.js';
 import adminRoutes from './routes/admin.routes.js';
 import recordRoutes from './routes/records.routes.js';
+import appUsersRoutes from './routes/app-users.routes.js';
 
 dotenv.config();
 
@@ -36,6 +37,7 @@ app.use('/api/entities', entityRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/records', recordRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/app-users', appUsersRoutes);
 
 app.listen(PORT, () => {
   console.log(`CRM API running on http://localhost:${PORT}`);

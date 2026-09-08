@@ -18,11 +18,15 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { refreshSession, logout } from './lib/auth';
+import wordsinvestLogo from '../assets/wordsinvest-logo.png';
+import './brand.css'
+import './theme.css'
+
 
 type Role = 'employee' | 'admin';
 type EmployeeTab = 'COMPTES' | 'CONTACTS' | 'OPPORTUNITÉS' | 'SOUS-TRAITANT';
 type AdminTab =
-  // | 'PISTES'
+  | 'PISTES'
   | 'FACTURES'
   | 'SYNTHÈSE'
   | 'MEILLEURS CLIENTS'
@@ -37,23 +41,12 @@ type AuthResponse = {
     email: string;
     role: Role;
     fullName: string;
-    permissions: Tab[];
   };
 };
 
 type DashboardStats = { label: string; value: string }[];
 type EntityRow = Record<string, string | number | boolean | null>;
 type EntityPayload = Record<string, EntityRow[]>;
-
-type UserOption = {
-  id: number;
-  label: string;
-};
-
-type UserPermission = {
-  tab_key: Tab;
-  can_access: boolean;
-};
 
 const API_URL = (import.meta as any).env?.VITE_API_URL || 'http://localhost:4000/api';
 
@@ -65,7 +58,7 @@ const employeeTabs: { label: EmployeeTab; icon: ComponentType<any> }[] = [
 ];
 
 const adminTabs: { label: AdminTab; icon: ComponentType<any> }[] = [
-  // { label: 'PISTES', icon: BriefcaseBusiness },
+  { label: 'PISTES', icon: BriefcaseBusiness },
   { label: 'FACTURES', icon: FileText },
   { label: 'SYNTHÈSE', icon: ChartNoAxesCombined },
   { label: 'MEILLEURS CLIENTS', icon: TrendingUp },
@@ -78,7 +71,7 @@ const tabToKey: Record<Tab, string> = {
   CONTACTS: 'contacts',
   OPPORTUNITÉS: 'opportunities',
   'SOUS-TRAITANT': 'subcontractors',
-  // PISTES: 'leads',
+  PISTES: 'leads',
   FACTURES: 'invoices',
   SYNTHÈSE: 'summary',
   'MEILLEURS CLIENTS': 'topClients',
@@ -91,7 +84,7 @@ const tabToEntity: Record<Tab, string | null> = {
   CONTACTS: 'contacts',
   OPPORTUNITÉS: 'opportunities',
   'SOUS-TRAITANT': 'suppliers',
-  // PISTES: 'leads',
+  PISTES: 'leads',
   FACTURES: 'abstract_invoices',
   SYNTHÈSE: null,
   'MEILLEURS CLIENTS': null,
@@ -120,11 +113,11 @@ const tabMeta: Record<Tab, { title: string; subtitle: string; columns: string[] 
     subtitle: 'Sous-traitants issus de la table suppliers/subcontractors.',
     columns: ['Nom', 'Société', 'Email', 'Téléphone', 'Localisation', 'Spécialité'],
   },
-  // PISTES: {
-  //   title: 'Pistes',
-  //   subtitle: 'Pistes commerciales issues de la table leads.',
-  //   columns: ['Nom', 'Société', 'Statut', 'Source', 'Email', 'Téléphone', 'Note'],
-  // },
+  PISTES: {
+    title: 'Pistes',
+    subtitle: 'Pistes commerciales issues de la table leads.',
+    columns: ['Nom', 'Société', 'Statut', 'Source', 'Email', 'Téléphone', 'Note'],
+  },
   FACTURES: {
     title: 'Factures',
     subtitle: 'Factures issues de la base PostgreSQL.',
@@ -265,6 +258,7 @@ function formatValue(value: string | number | boolean | null | undefined) {
   return value;
 }
 
+
 function LoginCard({
   onLogin,
   loading,
@@ -278,48 +272,91 @@ function LoginCard({
   const [password, setPassword] = useState('password123');
 
   return (
-    <div className=" max-w-3xl gap-8 rounded-[32px] border border-white/10 bg-white/[0.04] p-4 shadow-2xl shadow-black/20 backdrop-blur md:grid-cols-[1.2fr_0.8fr] md:p-8">
-      <div className="flex flex-col justify-between rounded-[28px] bg-slate-950/70 p-8 text-white ring-1 ring-white/10">
+    <div className="w-full max-w-6xl overflow-hidden rounded-[34px] border border-[#E8E3DF] bg-[#FFFDFB] shadow-2xl shadow-[#2F2F2F]/10 md:grid md:grid-cols-[1.15fr_0.85fr]">
+      <div className="relative overflow-hidden bg-[#F8F7F6] p-8 text-[#2F2F2F] md:p-10">
+        <div className="absolute -right-16 -top-20 h-72 w-72 rounded-full bg-[#8B0E3F]/10 blur-3xl" />
+        <div className="absolute -bottom-20 -left-16 h-72 w-72 rounded-full bg-[#4E4E4E]/10 blur-3xl" />
+
+        <div className="relative">
+          <img
+            src={wordsinvestLogo}
+            alt="Wordsinvest"
+            className="h-auto w-72 max-w-full object-contain"
+          />
+
+          <div className="mt-10 h-px w-24 bg-[#8B0E3F]" />
+
+          <h1 className="mt-8 max-w-2xl font-serif text-5xl font-semibold leading-tight tracking-[-0.04em] text-[#2F2F2F] md:text-6xl">
+            Un CRM élégant pour piloter vos relations et opportunités.
+          </h1>
+
+          <p className="mt-5 max-w-xl text-base leading-7 text-[#6B6764]">
+            Interface alignée avec l’identité Wordsinvest : bordeaux profond,
+            gris chauds, contraste anthracite et espaces respirants pour une
+            expérience professionnelle et haut de gamme.
+          </p>
+
+          <div className="mt-10 grid gap-4 sm:grid-cols-3">
+            {[
+              ['CRM', 'relation client'],
+              ['Postgres', 'données métier'],
+              ['Node', 'API sécurisée'],
+            ].map(([value, label]) => (
+              <div key={label} className="rounded-3xl border border-[#E8E3DF] bg-white/70 p-5 shadow-sm backdrop-blur">
+                <div className="font-serif text-3xl font-semibold text-[#8B0E3F]">{value}</div>
+                <div className="mt-1 text-xs uppercase tracking-[0.22em] text-[#8A8582]">{label}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="flex flex-col justify-between bg-[#2F2F2F] p-8 text-white md:p-10">
         <div>
-          <h2 className="text-2xl font-semibold">Connexion</h2>
+          <div className="text-xs uppercase tracking-[0.28em] text-[#D8C5CE]">Accès sécurisé</div>
+          <h2 className="mt-3 font-serif text-3xl font-semibold tracking-[-0.03em]">Connexion</h2>
+          <p className="mt-3 text-sm leading-6 text-white/65">
+            Connecte-toi pour accéder aux vues, aux données PostgreSQL et aux
+            outils d’administration du CRM.
+          </p>
         </div>
 
         <div className="mt-8 space-y-4">
           <div>
-            <label className="mb-2 block text-sm text-slate-400">Email</label>
+            <label className="mb-2 block text-sm text-white/65">Email</label>
             <input
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full rounded-2xl border border-slate-700 bg-slate-900 px-4 py-3 outline-none focus:border-indigo-400"
+              className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-3 text-white outline-none transition placeholder:text-white/35 focus:border-[#C05A83] focus:bg-white/[0.09]"
             />
           </div>
 
           <div>
-            <label className="mb-2 block text-sm text-slate-400">Mot de passe</label>
+            <label className="mb-2 block text-sm text-white/65">Mot de passe</label>
             <input
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full rounded-2xl border border-slate-700 bg-slate-900 px-4 py-3 outline-none focus:border-indigo-400"
+              className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-3 text-white outline-none transition placeholder:text-white/35 focus:border-[#C05A83] focus:bg-white/[0.09]"
             />
           </div>
 
           <button
             disabled={loading}
             onClick={() => onLogin(email, password)}
-            className="w-full rounded-2xl bg-indigo-500 px-5 py-4 font-medium text-white transition hover:bg-indigo-400 disabled:cursor-not-allowed disabled:opacity-70"
+            className="w-full rounded-2xl bg-[#8B0E3F] px-5 py-4 font-medium text-white shadow-lg shadow-[#8B0E3F]/20 transition hover:bg-[#A0124D] disabled:cursor-not-allowed disabled:opacity-70"
           >
             {loading ? 'Connexion...' : 'Se connecter'}
           </button>
 
           {error ? (
-            <div className="rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">
+            <div className="rounded-2xl border border-[#C05A83]/40 bg-[#8B0E3F]/20 px-4 py-3 text-sm text-[#F6DCE7]">
               {error}
             </div>
           ) : null}
         </div>
 
-        <div className="mt-6 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-4 text-sm text-emerald-200">
+        <div className="mt-6 rounded-2xl border border-white/10 bg-white/[0.06] p-4 text-sm text-white/70">
           Démo : employee@crm.local / admin@crm.local — mot de passe : password123
         </div>
       </div>
@@ -327,14 +364,15 @@ function LoginCard({
   );
 }
 
+
 function KpiCard({ label, value, icon }: { label: string; value: string; icon: ReactNode }) {
   return (
-    <div className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm">
-      <div className="flex items-center justify-between text-slate-500">
-        <span className="text-sm">{label}</span>
-        {icon}
+    <div className="rounded-[24px] border border-[#E8E3DF] bg-[#FFFDFB] p-5 shadow-sm shadow-[#2F2F2F]/5">
+      <div className="flex items-center justify-between text-[#8A8582]">
+        <span className="text-xs uppercase tracking-[0.18em]">{label}</span>
+        <span className="text-[#8B0E3F]">{icon}</span>
       </div>
-      <div className="mt-4 text-3xl font-semibold text-slate-900">{value}</div>
+      <div className="mt-4 font-serif text-3xl font-semibold tracking-[-0.03em] text-[#2F2F2F]">{value}</div>
     </div>
   );
 }
@@ -372,10 +410,10 @@ function DataTable({
   const safeRows = normalizeRows(rows, columns);
 
   return (
-    <div className="overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-sm">
+    <div className="overflow-hidden rounded-[24px] border border-[#E8E3DF] bg-[#FFFDFB] shadow-sm shadow-[#2F2F2F]/5">
       <div className="overflow-x-auto">
         <table className="min-w-full text-left text-sm">
-          <thead className="bg-slate-50 text-slate-500">
+          <thead className="bg-[#F8F7F6] text-[#6B6764]">
             <tr>
               {columns.map((column) => (
                 <th key={column} className="px-4 py-3 font-medium">
@@ -388,7 +426,7 @@ function DataTable({
           <tbody>
             {safeRows.length === 0 ? (
               <tr>
-                <td className="px-4 py-8 text-slate-400" colSpan={columns.length}>
+                <td className="px-4 py-8 text-[#8A8582]" colSpan={columns.length}>
                   Aucune donnée disponible.
                 </td>
               </tr>
@@ -397,7 +435,7 @@ function DataTable({
                 <tr
                   key={index}
                   onClick={() => onRowClick?.(rows[index])}
-                  className="cursor-pointer border-t border-slate-100 text-slate-700 transition hover:bg-indigo-50/60"
+                  className="cursor-pointer border-t border-[#EFEAE6] text-[#4E4E4E] transition hover:bg-[#8B0E3F]/[0.05]"
                 >
                   {columns.map((column) => (
                     <td key={column} className="px-4 py-3">
@@ -463,35 +501,6 @@ function Panel({
   );
 }
 
-async function fetchUserPermissions(
-  token: string,
-  userId: number,
-  onTokenRefresh?: (data: AuthResponse) => void
-) {
-  return api<{ permissions: UserPermission[] }>(
-    `/app-users/${userId}/permissions`,
-    {},
-    token,
-    onTokenRefresh
-  );
-}
-
-async function updateUserPermissions(
-  token: string,
-  userId: number,
-  permissions: UserPermission[],
-  onTokenRefresh?: (data: AuthResponse) => void
-) {
-  return api<{ success: boolean }>(
-    `/app-users/${userId}/permissions`,
-    {
-      method: 'PUT',
-      body: JSON.stringify({ permissions }),
-    },
-    token,
-    onTokenRefresh
-  );
-}
 
 function AdministrationPanel({
   auth,
@@ -504,10 +513,6 @@ function AdministrationPanel({
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const [permissionUser, setPermissionUser] = useState<AppUser | null>(null);
-  const [permissions, setPermissions] = useState<UserPermission[]>([]);
-  const [permissionSaving, setPermissionSaving] = useState(false);
 
   const [form, setForm] = useState({
     email: '',
@@ -600,67 +605,17 @@ function AdministrationPanel({
     });
   }
 
-  async function openPermissions(user: AppUser) {
-    setPermissionUser(user);
-    setError(null);
-
-    try {
-      const data = await fetchUserPermissions(auth.token, user.id, onTokenRefresh);
-      setPermissions(data.permissions);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Chargement permissions impossible');
-    }
-  }
-
-  async function savePermissions() {
-    if (!permissionUser) return;
-
-    setPermissionSaving(true);
-    setError(null);
-
-    try {
-      await updateUserPermissions(
-        auth.token,
-        permissionUser.id,
-        permissions,
-        onTokenRefresh
-      );
-
-      if (permissionUser.id === auth.user.id) {
-        const refreshed = await refreshSession();
-        if (refreshed?.token) {
-          onTokenRefresh(refreshed);
-        }
-      }
-
-      if (
-        permissionUser.id === auth.user.id &&
-        permissions.some((p) => p.tab_key === 'ADMINISTRATION' && !p.can_access)
-      ) {
-        setError("Tu ne peux pas retirer ton propre accès à l'administration.");
-        return;
-      }
-
-      setPermissionUser(null);
-      setPermissions([]);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Sauvegarde permissions impossible');
-    } finally {
-      setPermissionSaving(false);
-    }
-  }
-
   return (
     <div className="grid gap-6 xl:grid-cols-[420px_1fr]">
       <form
         onSubmit={submit}
-        className="rounded-[24px] border border-slate-200 bg-white p-6 shadow-sm"
+        className="rounded-[24px] border border-[#E8E3DF] bg-[#FFFDFB] p-6 shadow-sm shadow-[#2F2F2F]/5"
       >
-        <h2 className="text-xl font-semibold text-slate-900">
+        <h2 className="text-xl font-semibold text-[#2F2F2F]">
           {editingId ? 'Modifier un utilisateur' : 'Créer un utilisateur'}
         </h2>
 
-        <p className="mt-2 text-sm text-slate-500">
+        <p className="mt-2 text-sm text-[#6B6764]">
           Ces comptes servent uniquement à se connecter à l’application CRM.
         </p>
 
@@ -672,51 +627,51 @@ function AdministrationPanel({
 
         <div className="mt-5 space-y-4">
           <div>
-            <label className="mb-2 block text-sm font-medium text-slate-700">
+            <label className="mb-2 block text-sm font-medium text-[#4E4E4E]">
               Nom complet
             </label>
             <input
               value={form.full_name}
               onChange={(e) => setForm({ ...form, full_name: e.target.value })}
-              className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-indigo-400"
+              className="w-full rounded-2xl border border-[#E8E3DF] px-4 py-3 outline-none focus:border-[#8B0E3F]"
               required
             />
           </div>
 
           <div>
-            <label className="mb-2 block text-sm font-medium text-slate-700">
+            <label className="mb-2 block text-sm font-medium text-[#4E4E4E]">
               Email
             </label>
             <input
               type="email"
               value={form.email}
               onChange={(e) => setForm({ ...form, email: e.target.value })}
-              className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-indigo-400"
+              className="w-full rounded-2xl border border-[#E8E3DF] px-4 py-3 outline-none focus:border-[#8B0E3F]"
               required
             />
           </div>
 
           <div>
-            <label className="mb-2 block text-sm font-medium text-slate-700">
+            <label className="mb-2 block text-sm font-medium text-[#4E4E4E]">
               Mot de passe {editingId ? '(laisser vide pour ne pas changer)' : ''}
             </label>
             <input
               type="password"
               value={form.password}
               onChange={(e) => setForm({ ...form, password: e.target.value })}
-              className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-indigo-400"
+              className="w-full rounded-2xl border border-[#E8E3DF] px-4 py-3 outline-none focus:border-[#8B0E3F]"
               required={!editingId}
             />
           </div>
 
           <div>
-            <label className="mb-2 block text-sm font-medium text-slate-700">
+            <label className="mb-2 block text-sm font-medium text-[#4E4E4E]">
               Rôle
             </label>
             <select
               value={form.role}
               onChange={(e) => setForm({ ...form, role: e.target.value as Role })}
-              className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-indigo-400"
+              className="w-full rounded-2xl border border-[#E8E3DF] px-4 py-3 outline-none focus:border-[#8B0E3F]"
             >
               <option value="employee">Salarié</option>
               <option value="admin">Administrateur</option>
@@ -727,7 +682,7 @@ function AdministrationPanel({
             <button
               disabled={saving}
               type="submit"
-              className="rounded-2xl bg-indigo-500 px-5 py-3 text-sm font-medium text-white hover:bg-indigo-400 disabled:opacity-60"
+              className="rounded-2xl bg-[#8B0E3F] px-5 py-3 text-sm font-medium text-white hover:bg-[#A0124D] disabled:opacity-60"
             >
               {saving ? 'Enregistrement...' : editingId ? 'Modifier' : 'Créer'}
             </button>
@@ -736,7 +691,7 @@ function AdministrationPanel({
               <button
                 type="button"
                 onClick={resetForm}
-                className="rounded-2xl border border-slate-200 px-5 py-3 text-sm text-slate-600 hover:bg-slate-50"
+                className="rounded-2xl border border-[#E8E3DF] px-5 py-3 text-sm text-[#4E4E4E] hover:bg-[#F8F7F6]"
               >
                 Annuler
               </button>
@@ -745,13 +700,13 @@ function AdministrationPanel({
         </div>
       </form>
 
-      <div className="rounded-[24px] border border-slate-200 bg-white shadow-sm">
-        <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
-          <h2 className="text-xl font-semibold text-slate-900">Utilisateurs</h2>
+      <div className="rounded-[24px] border border-[#E8E3DF] bg-[#FFFDFB] shadow-sm shadow-[#2F2F2F]/5">
+        <div className="flex items-center justify-between border-b border-[#EFEAE6] px-6 py-4">
+          <h2 className="text-xl font-semibold text-[#2F2F2F]">Utilisateurs</h2>
 
           <button
             onClick={loadUsers}
-            className="rounded-2xl border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50"
+            className="rounded-2xl border border-[#E8E3DF] px-4 py-2 text-sm text-[#4E4E4E] hover:bg-[#F8F7F6]"
           >
             {loading ? 'Chargement...' : 'Actualiser'}
           </button>
@@ -759,7 +714,7 @@ function AdministrationPanel({
 
         <div className="overflow-x-auto">
           <table className="min-w-full text-left text-sm">
-            <thead className="bg-slate-50 text-slate-500">
+            <thead className="bg-[#F8F7F6] text-[#6B6764]">
               <tr>
                 <th className="px-4 py-3 font-medium">Nom</th>
                 <th className="px-4 py-3 font-medium">Email</th>
@@ -772,13 +727,13 @@ function AdministrationPanel({
             <tbody>
               {users.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-4 py-8 text-slate-400">
+                  <td colSpan={5} className="px-4 py-8 text-[#8A8582]">
                     Aucun utilisateur.
                   </td>
                 </tr>
               ) : (
                 users.map((user) => (
-                  <tr key={user.id} className="border-t border-slate-100 text-slate-700">
+                  <tr key={user.id} className="border-t border-[#EFEAE6] text-[#4E4E4E]">
                     <td className="px-4 py-3">{user.full_name}</td>
                     <td className="px-4 py-3">{user.email}</td>
                     <td className="px-4 py-3">
@@ -791,7 +746,7 @@ function AdministrationPanel({
                       <div className="flex gap-2">
                         <button
                           onClick={() => editUser(user)}
-                          className="rounded-xl border border-slate-200 px-3 py-2 text-xs text-slate-600 hover:bg-slate-50"
+                          className="rounded-xl border border-[#E8E3DF] px-3 py-2 text-xs text-[#4E4E4E] hover:bg-[#F8F7F6]"
                         >
                           Modifier
                         </button>
@@ -803,13 +758,6 @@ function AdministrationPanel({
                         >
                           Supprimer
                         </button>
-
-                        <button
-                          onClick={() => openPermissions(user)}
-                          className="rounded-xl border border-indigo-200 px-3 py-2 text-xs text-indigo-600 hover:bg-indigo-50"
-                        >
-                          Droits
-                        </button>
                       </div>
                     </td>
                   </tr>
@@ -817,67 +765,6 @@ function AdministrationPanel({
               )}
             </tbody>
           </table>
-          {permissionUser ? (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
-              <div className="w-full max-w-xl rounded-[28px] bg-white shadow-2xl">
-                <div className="border-b border-slate-200 px-6 py-4">
-                  <h2 className="text-xl font-semibold text-slate-900">
-                    Droits de {permissionUser.full_name}
-                  </h2>
-                  <p className="mt-1 text-sm text-slate-500">
-                    Choisis les onglets accessibles pour cet utilisateur.
-                  </p>
-                </div>
-
-                <div className="space-y-3 p-6">
-                  {permissions.map((permission) => (
-                    <label
-                      key={permission.tab_key}
-                      className="flex items-center justify-between rounded-2xl border border-slate-200 px-4 py-3"
-                    >
-                      <span className="font-medium text-slate-700">
-                        {permission.tab_key}
-                      </span>
-
-                      <input
-                        type="checkbox"
-                        checked={permission.can_access}
-                        onChange={(e) => {
-                          setPermissions((current) =>
-                            current.map((item) =>
-                              item.tab_key === permission.tab_key
-                                ? { ...item, can_access: e.target.checked }
-                                : item
-                            )
-                          );
-                        }}
-                      />
-                    </label>
-                  ))}
-                </div>
-
-                <div className="flex justify-end gap-3 border-t border-slate-200 px-6 py-4">
-                  <button
-                    onClick={() => {
-                      setPermissionUser(null);
-                      setPermissions([]);
-                    }}
-                    className="rounded-2xl border border-slate-200 px-5 py-3 text-sm text-slate-600 hover:bg-slate-50"
-                  >
-                    Annuler
-                  </button>
-
-                  <button
-                    disabled={permissionSaving}
-                    onClick={savePermissions}
-                    className="rounded-2xl bg-indigo-500 px-5 py-3 text-sm font-medium text-white hover:bg-indigo-400 disabled:opacity-60"
-                  >
-                    {permissionSaving ? 'Sauvegarde...' : 'Sauvegarder'}
-                  </button>
-                </div>
-              </div>
-            </div>
-          ) : null}
         </div>
       </div>
     </div>
@@ -935,51 +822,30 @@ function EditRecordModal({
   payload,
   saving,
   error,
-  token,
   onClose,
   onSave,
 }: {
   payload: RecordModalPayload;
   saving: boolean;
   error: string | null;
-  token: string;
   onClose: () => void;
   onSave: (values: Record<string, any>) => void;
 }) {
   const [form, setForm] = useState<Record<string, any>>(payload.record);
-  const [userOptions, setUserOptions] = useState<UserOption[]>([]);
-
-  useEffect(() => {
-    const hasAssignedTo = payload.columns.some(
-      (column) => column.column_name === 'assigned_to'
-    );
-
-    if (!hasAssignedTo) return;
-
-    fetch(`${API_URL}/records/options/users`, {
-      credentials: 'include',
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    })
-      .then((res) => res.json())
-      .then((data) => setUserOptions(data.users || []))
-      .catch(() => setUserOptions([]));
-  }, [payload.columns, token]);
 
   useEffect(() => {
     setForm(payload.record);
   }, [payload.record]);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
-      <div className="max-h-[90vh] w-full max-w-5xl overflow-hidden rounded-[28px] bg-white shadow-2xl">
-        <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#2F2F2F]/60 p-4 backdrop-blur-sm">
+      <div className="max-h-[90vh] w-full max-w-5xl overflow-hidden rounded-[28px] bg-[#FFFDFB] shadow-2xl shadow-[#2F2F2F]/20">
+        <div className="flex items-center justify-between border-b border-[#E8E3DF] px-6 py-4">
           <div>
-            <div className="text-xs uppercase tracking-[0.2em] text-slate-400">
+            <div className="text-xs uppercase tracking-[0.2em] text-[#8A8582]">
               {payload.table}
             </div>
-            <h2 className="mt-1 text-2xl font-semibold text-slate-900">
+            <h2 className="mt-1 text-2xl font-semibold text-[#2F2F2F]">
               {payload.mode === 'create'
                 ? 'Créer un nouvel enregistrement'
                 : `Modifier l’enregistrement #${payload.record.id}`}
@@ -988,7 +854,7 @@ function EditRecordModal({
 
           <button
             onClick={onClose}
-            className="rounded-xl border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50"
+            className="rounded-xl border border-[#E8E3DF] px-4 py-2 text-sm text-[#4E4E4E] hover:bg-[#F8F7F6]"
           >
             Fermer
           </button>
@@ -1007,50 +873,16 @@ function EditRecordModal({
               const readOnly = isReadOnlyColumn(name);
               const value = form[name];
 
-              if (name === 'assigned_to') {
-                return (
-                  <div key={name}>
-                    <label className="mb-2 block text-sm font-medium text-slate-700">
-                      assigned_to
-                      <span className="ml-2 text-xs font-normal text-slate-400">
-                        utilisateur
-                      </span>
-                    </label>
-
-                    <select
-                      value={form[name] ?? ''}
-                      disabled={readOnly}
-                      onChange={(e) =>
-                        setForm({
-                          ...form,
-                          [name]: e.target.value === '' ? null : Number(e.target.value),
-                        })
-                      }
-                      className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-indigo-400 disabled:bg-slate-100 disabled:text-slate-400"
-                    >
-                      <option value="">Non assigné</option>
-
-                      {userOptions.map((user) => (
-                        <option key={user.id} value={user.id}>
-                          {user.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                );
-              }
-
               if (column.data_type === 'boolean') {
                 return (
                   <label
                     key={name}
-                    className="flex items-center justify-between rounded-2xl border border-slate-200 p-4"
+                    className="flex items-center justify-between rounded-2xl border border-[#E8E3DF] p-4"
                   >
                     <div>
-                      <div className="font-medium text-slate-800">{name}</div>
-                      <div className="text-xs text-slate-400">{column.data_type}</div>
+                      <div className="font-medium text-[#2F2F2F]">{name}</div>
+                      <div className="text-xs text-[#8A8582]">{column.data_type}</div>
                     </div>
-                    
 
                     <input
                       type="checkbox"
@@ -1065,9 +897,9 @@ function EditRecordModal({
               if (column.data_type === 'text' || column.data_type.includes('json')) {
                 return (
                   <div key={name} className="md:col-span-2">
-                    <label className="mb-2 block text-sm font-medium text-slate-700">
+                    <label className="mb-2 block text-sm font-medium text-[#4E4E4E]">
                       {name}
-                      <span className="ml-2 text-xs font-normal text-slate-400">
+                      <span className="ml-2 text-xs font-normal text-[#8A8582]">
                         {column.data_type}
                       </span>
                     </label>
@@ -1080,7 +912,7 @@ function EditRecordModal({
                       }
                       disabled={readOnly}
                       onChange={(e) => setForm({ ...form, [name]: e.target.value })}
-                      className="min-h-24 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-indigo-400 disabled:bg-slate-100 disabled:text-slate-400"
+                      className="min-h-24 w-full rounded-2xl border border-[#E8E3DF] px-4 py-3 text-sm outline-none focus:border-[#8B0E3F] disabled:bg-[#F3EFEB] disabled:text-[#8A8582]"
                     />
                   </div>
                 );
@@ -1088,9 +920,9 @@ function EditRecordModal({
 
               return (
                 <div key={name}>
-                  <label className="mb-2 block text-sm font-medium text-slate-700">
+                  <label className="mb-2 block text-sm font-medium text-[#4E4E4E]">
                     {name}
-                    <span className="ml-2 text-xs font-normal text-slate-400">
+                    <span className="ml-2 text-xs font-normal text-[#8A8582]">
                       {column.data_type}
                     </span>
                   </label>
@@ -1100,7 +932,7 @@ function EditRecordModal({
                     value={normalizeInputValue(value)}
                     disabled={readOnly}
                     onChange={(e) => setForm({ ...form, [name]: e.target.value })}
-                    className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-indigo-400 disabled:bg-slate-100 disabled:text-slate-400"
+                    className="w-full rounded-2xl border border-[#E8E3DF] px-4 py-3 text-sm outline-none focus:border-[#8B0E3F] disabled:bg-[#F3EFEB] disabled:text-[#8A8582]"
                   />
                 </div>
               );
@@ -1108,10 +940,10 @@ function EditRecordModal({
           </div>
         </div>
 
-        <div className="flex items-center justify-end gap-3 border-t border-slate-200 px-6 py-4">
+        <div className="flex items-center justify-end gap-3 border-t border-[#E8E3DF] px-6 py-4">
           <button
             onClick={onClose}
-            className="rounded-2xl border border-slate-200 px-5 py-3 text-sm text-slate-600 hover:bg-slate-50"
+            className="rounded-2xl border border-[#E8E3DF] px-5 py-3 text-sm text-[#4E4E4E] hover:bg-[#F8F7F6]"
           >
             Annuler
           </button>
@@ -1119,7 +951,7 @@ function EditRecordModal({
           <button
             disabled={saving}
             onClick={() => onSave(form)}
-            className="rounded-2xl bg-indigo-500 px-5 py-3 text-sm font-medium text-white hover:bg-indigo-400 disabled:cursor-not-allowed disabled:opacity-60"
+            className="rounded-2xl bg-[#8B0E3F] px-5 py-3 text-sm font-medium text-white hover:bg-[#A0124D] disabled:cursor-not-allowed disabled:opacity-60"
           >
             {saving ? 'Enregistrement...' : 'Enregistrer'}
           </button>
@@ -1268,13 +1100,8 @@ export default function App() {
   }
 
   const tabs = useMemo(() => {
-    const allTabs = auth?.user.role === 'admin'
-      ? [...employeeTabs, ...adminTabs]
-      : employeeTabs;
-
-    const permissions = auth?.user.permissions || [];
-
-    return allTabs.filter((tab) => permissions.includes(tab.label));
+    if (auth?.user.role === 'admin') return adminTabs;
+    return employeeTabs;
   }, [auth]);
 
   useEffect(() => {
@@ -1395,9 +1222,9 @@ export default function App() {
 
   if (bootstrapping && !auth) {
     return (
-      <main className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(99,102,241,0.18),_transparent_35%),linear-gradient(180deg,_#020617,_#0f172a)] px-4 py-10 md:px-8">
-        <div className="mx-auto flex min-h-[85vh] max-w-7xl items-center justify-center text-white">
-          <div className="rounded-3xl border border-white/10 bg-white/5 px-8 py-6 shadow-2xl backdrop-blur">
+      <main className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(139,14,63,0.16),_transparent_34%),linear-gradient(180deg,_#F8F7F6,_#EFEAE6)] px-4 py-10 md:px-8">
+        <div className="mx-auto flex min-h-[85vh] max-w-7xl items-center justify-center text-[#2F2F2F]">
+          <div className="rounded-3xl border border-[#E8E3DF] bg-[#FFFDFB]/80 px-8 py-6 shadow-2xl backdrop-blur">
             <div className="flex items-center gap-3">
               <RefreshCw className="size-5 animate-spin" />
               <span>Restauration de la session...</span>
@@ -1410,7 +1237,7 @@ export default function App() {
 
   if (!auth) {
     return (
-      <main className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(99,102,241,0.18),_transparent_35%),linear-gradient(180deg,_#020617,_#0f172a)] px-4 py-10 md:px-8">
+      <main className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(139,14,63,0.16),_transparent_34%),linear-gradient(180deg,_#F8F7F6,_#EFEAE6)] px-4 py-10 md:px-8">
         <div className="mx-auto flex min-h-[85vh] max-w-7xl items-center justify-center">
           <LoginCard onLogin={login} loading={loading} error={error} />
         </div>
@@ -1421,23 +1248,26 @@ export default function App() {
   const activeMeta = tabMeta[activeTab];
 
   return (
-    <main className="min-h-screen bg-slate-100 text-slate-900">
+    <main className="min-h-screen bg-[#F8F7F6] text-[#2F2F2F]">
       <div className="grid min-h-screen lg:grid-cols-[280px_1fr]">
-        <aside className="border-r border-slate-200 bg-slate-950 px-5 py-6 text-white">
-          <div className="flex items-center gap-3 rounded-2xl bg-white/5 p-4">
-            <div className="rounded-2xl bg-indigo-500/20 p-3 text-indigo-300">
-              <LayoutDashboard className="size-5" />
-            </div>
-            <div>
-              <div className="text-sm text-slate-400">Wordsinvest</div>
-              <div className="font-semibold">CRM métier</div>
+        <aside className="border-r border-[#E8E3DF] bg-[#2F2F2F] px-5 py-6 text-white">
+          <div className="rounded-3xl border border-white/10 bg-white/[0.06] p-4">
+            <img src={wordsinvestLogo} alt="Wordsinvest" className="h-auto w-full rounded-2xl bg-white p-3" />
+            <div className="mt-4 flex items-center gap-3">
+              <div className="rounded-2xl bg-[#8B0E3F]/25 p-3 text-[#F2DCE5]">
+                <LayoutDashboard className="size-5" />
+              </div>
+              <div>
+                <div className="text-xs uppercase tracking-[0.22em] text-white/45">Wordsinvest</div>
+                <div className="font-serif text-lg font-semibold">CRM métier</div>
+              </div>
             </div>
           </div>
 
-          <div className="mt-8 rounded-2xl border border-white/10 bg-white/5 p-4 text-sm">
-            <div className="text-slate-400">Connecté en tant que</div>
-            <div className="mt-1 font-medium">{auth.user.fullName}</div>
-            <div className="text-slate-400">{auth.user.role}</div>
+          <div className="mt-8 rounded-2xl border border-white/10 bg-white/[0.06] p-4 text-sm text-white">
+            <div className="text-white/45">Connecté en tant que</div>
+            <div className="mt-1 font-medium text-white">{auth.user.fullName}</div>
+            <div className="text-white/45">{auth.user.role}</div>
           </div>
 
           <nav className="mt-8 space-y-2">
@@ -1450,8 +1280,8 @@ export default function App() {
                   onClick={() => setActiveTab(label)}
                   className={`flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left text-sm transition ${
                     isActive
-                      ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/20'
-                      : 'text-slate-300 hover:bg-white/5 hover:text-white'
+                      ? 'bg-[#8B0E3F] text-white shadow-lg shadow-[#8B0E3F]/20'
+                      : 'text-white/75 hover:bg-white/5 hover:text-white'
                   }`}
                 >
                   <Icon className="size-4" />
@@ -1463,32 +1293,32 @@ export default function App() {
 
           <button
             onClick={handleLogout}
-            className="mt-8 flex w-full items-center justify-center gap-2 rounded-2xl border border-white/10 px-4 py-3 text-sm text-slate-300 transition hover:bg-white/5 hover:text-white"
+            className="mt-8 flex w-full items-center justify-center gap-2 rounded-2xl border border-white/10 px-4 py-3 text-sm text-white/75 transition hover:bg-white/5 hover:text-white"
           >
             <LogOut className="size-4" /> Déconnexion
           </button>
         </aside>
 
         <section className="p-4 md:p-8">
-          <header className="flex flex-col gap-4 rounded-[28px] bg-white p-5 shadow-sm md:flex-row md:items-center md:justify-between">
+          <header className="flex flex-col gap-4 rounded-[28px] bg-[#FFFDFB] p-5 shadow-sm shadow-[#2F2F2F]/5 md:flex-row md:items-center md:justify-between">
             <div>
-              <div className="text-sm uppercase tracking-[0.2em] text-slate-400">
+              <div className="text-sm uppercase tracking-[0.2em] text-[#8A8582]">
                 {auth.user.role === 'admin' ? 'admin' : 'salarié'}
               </div>
-              <h1 className="mt-2 text-3xl font-semibold">{activeMeta.title}</h1>
-              <p className="mt-2 max-w-2xl text-sm text-slate-500">
+              <h1 className="mt-2 font-serif text-4xl font-semibold tracking-[-0.04em] text-[#2F2F2F]">{activeMeta.title}</h1>
+              <p className="mt-2 max-w-2xl text-sm text-[#6B6764]">
                 {activeMeta.subtitle}
               </p>
             </div>
 
             <div className="flex flex-wrap items-center gap-3">
-              <div className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-500">
+              <div className="flex items-center gap-2 rounded-2xl border border-[#E8E3DF] bg-[#F8F7F6] px-4 py-3 text-[#6B6764]">
                 <Search className="size-4" /> Recherche globale
               </div>
 
               <button
                 onClick={refreshData}
-                className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600 hover:bg-slate-50"
+                className="flex items-center gap-2 rounded-2xl border border-[#E8E3DF] bg-white px-4 py-3 text-sm text-[#4E4E4E] hover:bg-[#F8F7F6]"
               >
                 <RefreshCw className={`size-4 ${dataLoading ? 'animate-spin' : ''}`} />
                 Actualiser
@@ -1497,24 +1327,24 @@ export default function App() {
               {tabToEntity[activeTab] ? (
                 <button
                   onClick={openCreateRecord}
-                  className="flex items-center gap-2 rounded-2xl bg-indigo-500 px-4 py-3 text-sm font-medium text-white hover:bg-indigo-400"
+                  className="flex items-center gap-2 rounded-2xl bg-[#8B0E3F] px-4 py-3 text-sm font-medium text-white hover:bg-[#A0124D]"
                 >
                   Créer
                 </button>
               ) : null}
 
-              <button className="rounded-2xl border border-slate-200 bg-white p-3 text-slate-600 hover:bg-slate-50">
+              <button className="rounded-2xl border border-[#E8E3DF] bg-white p-3 text-[#4E4E4E] hover:bg-[#F8F7F6]">
                 <Bell className="size-4" />
               </button>
             </div>
           </header>
-          {/* 
+
           <div className="mt-6 grid gap-4 md:grid-cols-3 xl:grid-cols-4">
             <KpiCard label="Modules actifs" value={String(tabs.length)} icon={<Layers3 className="size-4" />} />
             <KpiCard label="Rôle" value={auth.user.role === 'admin' ? 'Admin' : 'Salarié'} icon={<Shield className="size-4" />} />
             <KpiCard label="Backend" value={dataLoading ? 'Sync...' : 'Connecté'} icon={<BriefcaseBusiness className="size-4" />} />
             <KpiCard label="Base" value="PostgreSQL" icon={<Building2 className="size-4" />} />
-          </div> */}
+          </div>
 
           {error ? (
             <div className="mt-6 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
@@ -1533,7 +1363,7 @@ export default function App() {
       </div>
 
       {modalLoading ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 text-white backdrop-blur-sm">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#2F2F2F]/60 text-white backdrop-blur-sm">
           <div className="flex items-center gap-3 rounded-3xl border border-white/10 bg-white/10 px-8 py-6">
             <RefreshCw className="size-5 animate-spin" />
             Chargement de l’enregistrement...
@@ -1546,7 +1376,6 @@ export default function App() {
           payload={modalPayload}
           saving={modalSaving}
           error={modalError}
-          token={auth.token}
           onClose={() => {
             setModalPayload(null);
             setModalError(null);

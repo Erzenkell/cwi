@@ -73,3 +73,9 @@ CROSS JOIN (
 ) AS tabs(tab_key)
 WHERE role = 'admin'
 ON CONFLICT (user_id, tab_key) DO NOTHING;
+
+INSERT INTO crm_app_user_tab_permissions (user_id, tab_key, can_access)
+SELECT id, 'LOGS', true
+FROM crm_app_users
+WHERE role = 'admin'
+ON CONFLICT (user_id, tab_key) DO NOTHING;

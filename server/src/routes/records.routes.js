@@ -1,6 +1,9 @@
 import { Router } from 'express';
 import { authenticate } from '../auth.js';
 import { query } from '../db.js';
+import crypto from 'crypto';
+
+import { createAuditLog } from '../audit.js';
 
 const router = Router();
 router.use(authenticate);
@@ -17,6 +20,40 @@ const allowedTables = {
   users: 'users',
   groups: 'groups',
 };
+
+function generateOldUniqueId() {
+  return crypto.randomBytes(16).toString('base64');
+}
+
+function isEmptyCreateValue(value) {
+  return value === undefined || value === null || value === '';
+}
+
+function applyCreateDefaults(tableName, payload, columnNames) {
+  if (tableName === 'abstract_invoices') {
+    if (columnNames.includes('old_uniqueid') && isEmptyCreateValue(payload.old_uniqueid)) {
+      payload.old_uniqueid = generateOldUniqueId();
+    }
+
+    if (columnNames.includes('currency') && isEmptyCreateValue(payload.currency)) {
+      payload.currency = 'EUR';
+    }
+
+    if (columnNames.includes('status') && isEmptyCreateValue(payload.status)) {
+      payload.status = 'En attente';
+    }
+
+    if (columnNames.includes('type') && isEmptyCreateValue(payload.type)) {
+      payload.type = 'Invoice';
+    }
+
+    if (columnNames.includes('invoice_year') && isEmptyCreateValue(payload.invoice_year)) {
+      payload.invoice_year = new Date().getFullYear();
+    }
+  }
+
+  return payload;
+}
 
 function resolveTable(key) {
   return allowedTables[key] || null;
@@ -156,6 +193,7 @@ router.patch('/:entity/:id', async (req, res) => {
       'created_at',
       'updated_at',
       'deleted_at',
+      'old_uniqueid',
       'password',
       'password_hash',
       'encrypted_password',
@@ -188,7 +226,32 @@ router.patch('/:entity/:id', async (req, res) => {
       RETURNING *
     `;
 
+    const beforeResult = await query(
+      `
+      SELECT *
+      FROM ${tableName}
+      WHERE id = $1
+      LIMIT 1
+      `,
+      [req.params.id]
+    );
+
+    const beforeData = beforeResult.rows[0];
+
+    if (!beforeData) {
+      return res.status(404).json({ message: 'Enregistrement introuvable' });
+    }
+
     const result = await query(sql, [...values, req.params.id]);
+
+    await createAuditLog({
+      req,
+      action: 'update',
+      entity: tableName,
+      entityId: req.params.id,
+      beforeData,
+      afterData: result.rows[0],
+    });
 
     res.json({
       table: tableName,
@@ -224,14 +287,22 @@ router.post('/:entity', async (req, res) => {
       'confirmation_token',
     ]);
 
-    const entries = Object.entries(req.body)
+    const rawPayload = {};
+
+    for (const [key, value] of Object.entries(req.body)) {
+      if (!columnNames.includes(key)) continue;
+      if (forbiddenColumns.has(key)) continue;
+      if (isEmptyCreateValue(value)) continue;
+
+      rawPayload[key] = normalizeValue(value);
+    }
+
+    const payload = applyCreateDefaults(tableName, rawPayload, columnNames);
+
+    const entries = Object.entries(payload)
       .filter(([key]) => columnNames.includes(key))
       .filter(([key]) => !forbiddenColumns.has(key))
-      .filter(([, value]) => value !== undefined && value !== '');
-
-    if (entries.length === 0) {
-      return res.status(400).json({ message: 'Aucun champ valide reçu' });
-    }
+      .filter(([, value]) => !isEmptyCreateValue(value));
 
     const insertColumns = entries.map(([key]) => key);
     const placeholders = entries.map((_, index) => `$${index + 1}`);
@@ -245,6 +316,15 @@ router.post('/:entity', async (req, res) => {
       `,
       values
     );
+
+    await createAuditLog({
+      req,
+      action: 'create',
+      entity: tableName,
+      entityId: result.rows[0]?.id,
+      beforeData: null,
+      afterData: result.rows[0],
+    });
 
     res.status(201).json({
       table: tableName,

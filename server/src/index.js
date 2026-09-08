@@ -10,6 +10,8 @@ import dashboardRoutes from './routes/dashboard.routes.js';
 import adminRoutes from './routes/admin.routes.js';
 import recordRoutes from './routes/records.routes.js';
 import appUsersRoutes from './routes/app-users.routes.js';
+import quotesRoutes from './routes/quotes.routes.js';
+import auditRoutes from './routes/audit.routes.js';
 
 dotenv.config();
 
@@ -19,6 +21,7 @@ const PORT = process.env.PORT || 4000;
 const corsOptions = {
   origin: 'http://localhost:5173',
   credentials: true,
+  exposedHeaders: ['Content-Disposition'],
 };
 
 app.use(cors(corsOptions));
@@ -32,12 +35,14 @@ app.get('/api/health', async (_, res) => {
   res.json({ status: 'ok', dbTime: result.rows[0].now });
 });
 
+app.use('/api/quotes', quotesRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/entities', entityRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/records', recordRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/app-users', appUsersRoutes);
+app.use('/api/audit-logs', auditRoutes);
 
 app.listen(PORT, () => {
   console.log(`CRM API running on http://localhost:${PORT}`);

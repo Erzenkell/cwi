@@ -6,6 +6,7 @@ import {
   ChartNoAxesCombined,
   FileText,
   Handshake,
+  History,
   LayoutDashboard,
   LogOut,
   Search,
@@ -19,9 +20,6 @@ import {
 } from 'lucide-react';
 import { refreshSession, logout } from './lib/auth';
 import wordsinvestLogo from '../assets/wordsinvest-logo.png';
-import './brand.css'
-import './theme.css'
-
 
 type Role = 'employee' | 'admin';
 type EmployeeTab = 'COMPTES' | 'CONTACTS' | 'OPPORTUNITÉS' | 'SOUS-TRAITANT';
@@ -31,7 +29,8 @@ type AdminTab =
   | 'SYNTHÈSE'
   | 'MEILLEURS CLIENTS'
   | 'GROUPES'
-  | 'ADMINISTRATION';
+  | 'ADMINISTRATION'
+  | 'LOGS';
 type Tab = EmployeeTab | AdminTab;
 
 type AuthResponse = {
@@ -47,6 +46,31 @@ type AuthResponse = {
 type DashboardStats = { label: string; value: string }[];
 type EntityRow = Record<string, string | number | boolean | null>;
 type EntityPayload = Record<string, EntityRow[]>;
+
+type AuditLog = {
+  id: number;
+  action: string;
+  entity: string;
+  entity_id: string | null;
+  changed_fields: Record<string, { before: any; after: any }> | null;
+  before_data: Record<string, any> | null;
+  after_data: Record<string, any> | null;
+  created_at: string;
+  user_name: string | null;
+  user_email: string | null;
+};
+
+async function fetchAuditLogs(
+  token: string,
+  onTokenRefresh?: (data: AuthResponse) => void
+) {
+  return api<{ logs: AuditLog[] }>(
+    '/audit-logs',
+    {},
+    token,
+    onTokenRefresh
+  );
+}
 
 const API_URL = (import.meta as any).env?.VITE_API_URL || 'http://localhost:4000/api';
 
@@ -64,6 +88,7 @@ const adminTabs: { label: AdminTab; icon: ComponentType<any> }[] = [
   { label: 'MEILLEURS CLIENTS', icon: TrendingUp },
   { label: 'GROUPES', icon: Layers3 },
   { label: 'ADMINISTRATION', icon: UserCog },
+  { label: 'LOGS', icon: History },
 ];
 
 const tabToKey: Record<Tab, string> = {
@@ -77,6 +102,7 @@ const tabToKey: Record<Tab, string> = {
   'MEILLEURS CLIENTS': 'topClients',
   GROUPES: 'groups',
   ADMINISTRATION: 'administration',
+  LOGS: 'logs',
 };
 
 const tabToEntity: Record<Tab, string | null> = {
@@ -141,6 +167,11 @@ const tabMeta: Record<Tab, { title: string; subtitle: string; columns: string[] 
   ADMINISTRATION: {
     title: 'Administration',
     subtitle: 'Gestion des utilisateurs de l’application CRM.',
+    columns: [],
+  },
+  LOGS: {
+    title: 'Logs',
+    subtitle: 'Journal des créations, modifications et changements effectués dans le CRM.',
     columns: [],
   },
 };
@@ -250,6 +281,124 @@ async function deleteAppUser(
     token,
     onTokenRefresh,
   );
+}
+
+
+type QuoteLine = {
+  description: string;
+  quantity: number;
+  unit_price_ht: number;
+  vat_rate: number;
+};
+
+type QuoteForm = {
+  quote_date: string;
+  quote_number: string;
+  customer_name: string;
+  customer_address: string;
+  customer_postal_city: string;
+  customer_phone: string;
+  customer_email: string;
+  document_name: string;
+  target_language: string;
+  notes: string;
+  lines: QuoteLine[];
+};
+
+function buildDefaultQuoteForm(): QuoteForm {
+  const today = new Date().toISOString().slice(0, 10);
+  const stamp = String(Date.now()).slice(-6);
+
+  return {
+    quote_date: today,
+    quote_number: `DEVIS-${today.slice(0, 4)}-${stamp}`,
+    customer_name: '',
+    customer_address: '',
+    customer_postal_city: '',
+    customer_phone: '',
+    customer_email: '',
+    document_name: '',
+    target_language: '',
+    notes: '',
+    lines: [
+      {
+        description: 'Traduction',
+        quantity: 1,
+        unit_price_ht: 0,
+        vat_rate: 20,
+      },
+    ],
+  };
+}
+
+function lineTotalHt(line: QuoteLine) {
+  return Number(line.quantity || 0) * Number(line.unit_price_ht || 0);
+}
+
+function quoteSubtotal(lines: QuoteLine[]) {
+  return lines.reduce((sum, line) => sum + lineTotalHt(line), 0);
+}
+
+function quoteVat(lines: QuoteLine[]) {
+  return lines.reduce(
+    (sum, line) => sum + lineTotalHt(line) * (Number(line.vat_rate || 0) / 100),
+    0,
+  );
+}
+
+function formatCurrency(value: number) {
+  return new Intl.NumberFormat('fr-FR', {
+    style: 'currency',
+    currency: 'EUR',
+  }).format(value || 0);
+}
+
+async function generateQuoteDocx(
+  token: string,
+  data: QuoteForm,
+  onTokenRefresh?: (data: AuthResponse) => void,
+) {
+  async function request(currentToken: string) {
+    return fetch(`${API_URL}/quotes/generate`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${currentToken}`,
+      },
+      body: JSON.stringify(data),
+    });
+  }
+
+  let response = await request(token);
+
+  if (response.status === 401) {
+    const refreshed = await refreshSession();
+
+    if (refreshed?.token) {
+      onTokenRefresh?.(refreshed);
+      response = await request(refreshed.token);
+    }
+  }
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ message: 'Erreur génération devis' }));
+    throw new Error(error.message || 'Erreur génération devis');
+  }
+
+  const blob = await response.blob();
+  const disposition = response.headers.get('Content-Disposition') || '';
+  const match = disposition.match(/filename="?([^";]+)"?/i);
+  const filename = match?.[1] || `${data.quote_number || 'devis'}.docx`;
+
+  const url = window.URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.URL.revokeObjectURL(url);
 }
 
 function formatValue(value: string | number | boolean | null | undefined) {
@@ -501,6 +650,520 @@ function Panel({
   );
 }
 
+
+
+function QuoteModal({
+  initialValue,
+  generating,
+  error,
+  onClose,
+  onGenerate,
+}: {
+  initialValue: QuoteForm;
+  generating: boolean;
+  error: string | null;
+  onClose: () => void;
+  onGenerate: (values: QuoteForm) => void;
+}) {
+  const [form, setForm] = useState<QuoteForm>(initialValue);
+
+  useEffect(() => {
+    setForm(initialValue);
+  }, [initialValue]);
+
+  function updateLine(index: number, patch: Partial<QuoteLine>) {
+    setForm((current) => ({
+      ...current,
+      lines: current.lines.map((line, lineIndex) =>
+        lineIndex === index ? { ...line, ...patch } : line,
+      ),
+    }));
+  }
+
+  function addLine() {
+    setForm((current) => ({
+      ...current,
+      lines: [
+        ...current.lines,
+        {
+          description: '',
+          quantity: 1,
+          unit_price_ht: 0,
+          vat_rate: 20,
+        },
+      ],
+    }));
+  }
+
+  function removeLine(index: number) {
+    setForm((current) => ({
+      ...current,
+      lines: current.lines.filter((_, lineIndex) => lineIndex !== index),
+    }));
+  }
+
+  const subtotal = quoteSubtotal(form.lines);
+  const vat = quoteVat(form.lines);
+  const total = subtotal + vat;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#2F2F2F]/60 p-4 backdrop-blur-sm">
+      <div className="max-h-[92vh] w-full max-w-6xl overflow-hidden rounded-[28px] bg-[#FFFDFB] shadow-2xl shadow-[#2F2F2F]/20">
+        <div className="flex items-center justify-between border-b border-[#E8E3DF] px-6 py-4">
+          <div>
+            <div className="text-xs uppercase tracking-[0.2em] text-[#8A8582]">
+              Modèle Wordsinvest 2026
+            </div>
+            <h2 className="mt-1 font-serif text-3xl font-semibold tracking-[-0.04em] text-[#2F2F2F]">
+              Générer un devis
+            </h2>
+          </div>
+
+          <button
+            onClick={onClose}
+            className="rounded-xl border border-[#E8E3DF] px-4 py-2 text-sm text-[#4E4E4E] hover:bg-[#F8F7F6]"
+          >
+            Fermer
+          </button>
+        </div>
+
+        <div className="max-h-[68vh] overflow-y-auto p-6">
+          {error ? (
+            <div className="mb-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+              {error}
+            </div>
+          ) : null}
+
+          <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
+            <div className="space-y-5">
+              <div className="rounded-3xl border border-[#E8E3DF] bg-white p-5">
+                <h3 className="font-serif text-xl font-semibold text-[#2F2F2F]">Informations du devis</h3>
+
+                <div className="mt-4 grid gap-4 md:grid-cols-2">
+                  <div>
+                    <label className="mb-2 block text-sm font-medium text-[#4E4E4E]">Date</label>
+                    <input
+                      type="date"
+                      value={form.quote_date}
+                      onChange={(e) => setForm({ ...form, quote_date: e.target.value })}
+                      className="w-full rounded-2xl border border-[#E8E3DF] px-4 py-3 outline-none focus:border-[#8B0E3F]"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="mb-2 block text-sm font-medium text-[#4E4E4E]">Numéro de devis</label>
+                    <input
+                      value={form.quote_number}
+                      onChange={(e) => setForm({ ...form, quote_number: e.target.value })}
+                      className="w-full rounded-2xl border border-[#E8E3DF] px-4 py-3 outline-none focus:border-[#8B0E3F]"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="mb-2 block text-sm font-medium text-[#4E4E4E]">Nom du document</label>
+                    <input
+                      value={form.document_name}
+                      onChange={(e) => setForm({ ...form, document_name: e.target.value })}
+                      placeholder="Ex : Rapport annuel 2026"
+                      className="w-full rounded-2xl border border-[#E8E3DF] px-4 py-3 outline-none focus:border-[#8B0E3F]"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="mb-2 block text-sm font-medium text-[#4E4E4E]">Langue cible</label>
+                    <input
+                      value={form.target_language}
+                      onChange={(e) => setForm({ ...form, target_language: e.target.value })}
+                      placeholder="Ex : anglais"
+                      className="w-full rounded-2xl border border-[#E8E3DF] px-4 py-3 outline-none focus:border-[#8B0E3F]"
+                      required
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-3xl border border-[#E8E3DF] bg-white p-5">
+                <h3 className="font-serif text-xl font-semibold text-[#2F2F2F]">Client</h3>
+
+                <div className="mt-4 grid gap-4 md:grid-cols-2">
+                  <div className="md:col-span-2">
+                    <label className="mb-2 block text-sm font-medium text-[#4E4E4E]">Nom du client</label>
+                    <input
+                      value={form.customer_name}
+                      onChange={(e) => setForm({ ...form, customer_name: e.target.value })}
+                      className="w-full rounded-2xl border border-[#E8E3DF] px-4 py-3 outline-none focus:border-[#8B0E3F]"
+                      required
+                    />
+                  </div>
+
+                  <div className="md:col-span-2">
+                    <label className="mb-2 block text-sm font-medium text-[#4E4E4E]">Adresse</label>
+                    <input
+                      value={form.customer_address}
+                      onChange={(e) => setForm({ ...form, customer_address: e.target.value })}
+                      className="w-full rounded-2xl border border-[#E8E3DF] px-4 py-3 outline-none focus:border-[#8B0E3F]"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="mb-2 block text-sm font-medium text-[#4E4E4E]">Code postal et ville</label>
+                    <input
+                      value={form.customer_postal_city}
+                      onChange={(e) => setForm({ ...form, customer_postal_city: e.target.value })}
+                      className="w-full rounded-2xl border border-[#E8E3DF] px-4 py-3 outline-none focus:border-[#8B0E3F]"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="mb-2 block text-sm font-medium text-[#4E4E4E]">Téléphone</label>
+                    <input
+                      value={form.customer_phone}
+                      onChange={(e) => setForm({ ...form, customer_phone: e.target.value })}
+                      className="w-full rounded-2xl border border-[#E8E3DF] px-4 py-3 outline-none focus:border-[#8B0E3F]"
+                    />
+                  </div>
+
+                  <div className="md:col-span-2">
+                    <label className="mb-2 block text-sm font-medium text-[#4E4E4E]">Email</label>
+                    <input
+                      type="email"
+                      value={form.customer_email}
+                      onChange={(e) => setForm({ ...form, customer_email: e.target.value })}
+                      className="w-full rounded-2xl border border-[#E8E3DF] px-4 py-3 outline-none focus:border-[#8B0E3F]"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-5">
+              <div className="rounded-3xl border border-[#E8E3DF] bg-white p-5">
+                <div className="flex items-center justify-between gap-3">
+                  <h3 className="font-serif text-xl font-semibold text-[#2F2F2F]">Prestations</h3>
+                  <button
+                    type="button"
+                    onClick={addLine}
+                    className="rounded-2xl border border-[#8B0E3F]/25 px-4 py-2 text-sm font-medium text-[#8B0E3F] hover:bg-[#8B0E3F]/5"
+                  >
+                    Ajouter une ligne
+                  </button>
+                </div>
+
+                <div className="mt-4 space-y-4">
+                  {form.lines.map((line, index) => (
+                    <div key={index} className="rounded-2xl border border-[#EFEAE6] bg-[#F8F7F6] p-4">
+                      <div className="flex justify-between gap-3">
+                        <label className="text-sm font-medium text-[#4E4E4E]">Ligne {index + 1}</label>
+                        {form.lines.length > 1 ? (
+                          <button
+                            type="button"
+                            onClick={() => removeLine(index)}
+                            className="text-xs font-medium text-rose-600 hover:text-rose-700"
+                          >
+                            Supprimer
+                          </button>
+                        ) : null}
+                      </div>
+
+                      <div className="mt-3 space-y-3">
+                        <input
+                          value={line.description}
+                          onChange={(e) => updateLine(index, { description: e.target.value })}
+                          placeholder="Description"
+                          className="w-full rounded-2xl border border-[#E8E3DF] bg-white px-4 py-3 outline-none focus:border-[#8B0E3F]"
+                        />
+
+                        <div className="grid grid-cols-3 gap-3">
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={line.quantity}
+                            onChange={(e) => updateLine(index, { quantity: Number(e.target.value) })}
+                            className="w-full rounded-2xl border border-[#E8E3DF] bg-white px-4 py-3 outline-none focus:border-[#8B0E3F]"
+                            placeholder="Qté"
+                          />
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={line.unit_price_ht}
+                            onChange={(e) => updateLine(index, { unit_price_ht: Number(e.target.value) })}
+                            className="w-full rounded-2xl border border-[#E8E3DF] bg-white px-4 py-3 outline-none focus:border-[#8B0E3F]"
+                            placeholder="PU HT"
+                          />
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={line.vat_rate}
+                            onChange={(e) => updateLine(index, { vat_rate: Number(e.target.value) })}
+                            className="w-full rounded-2xl border border-[#E8E3DF] bg-white px-4 py-3 outline-none focus:border-[#8B0E3F]"
+                            placeholder="TVA %"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="rounded-3xl border border-[#E8E3DF] bg-[#2F2F2F] p-5 text-white">
+                <div className="text-xs uppercase tracking-[0.2em] text-white/45">Résumé</div>
+                <div className="mt-4 space-y-3 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-white/60">Total HT</span>
+                    <span>{formatCurrency(subtotal)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-white/60">TVA</span>
+                    <span>{formatCurrency(vat)}</span>
+                  </div>
+                  <div className="flex justify-between border-t border-white/10 pt-3 font-serif text-2xl font-semibold">
+                    <span>Total TTC</span>
+                    <span>{formatCurrency(total)}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <label className="mb-2 block text-sm font-medium text-[#4E4E4E]">Notes</label>
+                <textarea
+                  value={form.notes}
+                  onChange={(e) => setForm({ ...form, notes: e.target.value })}
+                  className="min-h-24 w-full rounded-2xl border border-[#E8E3DF] px-4 py-3 outline-none focus:border-[#8B0E3F]"
+                  placeholder="Informations complémentaires à ajouter au devis"
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-end gap-3 border-t border-[#E8E3DF] px-6 py-4">
+          <button
+            onClick={onClose}
+            className="rounded-2xl border border-[#E8E3DF] px-5 py-3 text-sm text-[#4E4E4E] hover:bg-[#F8F7F6]"
+          >
+            Annuler
+          </button>
+
+          <button
+            disabled={generating}
+            onClick={() => onGenerate(form)}
+            className="rounded-2xl bg-[#8B0E3F] px-5 py-3 text-sm font-medium text-white hover:bg-[#A0124D] disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {generating ? 'Génération...' : 'Générer le devis Word'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function LogsPanel({
+  auth,
+  onTokenRefresh,
+}: {
+  auth: AuthResponse;
+  onTokenRefresh: (data: AuthResponse) => void;
+}) {
+  const [logs, setLogs] = useState<AuditLog[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [selectedLog, setSelectedLog] = useState<AuditLog | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function loadLogs() {
+    setLoading(true);
+    setError(null);
+
+    try {
+      const data = await fetchAuditLogs(auth.token, onTokenRefresh);
+      setLogs(data.logs || []);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Chargement des logs impossible');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadLogs();
+  }, [auth.token]);
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm">
+        <div>
+          <h2 className="text-xl font-semibold text-slate-900">
+            Journal des changements
+          </h2>
+          <p className="mt-1 text-sm text-slate-500">
+            Toutes les créations et modifications effectuées dans le CRM.
+          </p>
+        </div>
+
+        <button
+          onClick={loadLogs}
+          className="flex items-center gap-2 rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-600 hover:bg-slate-50"
+        >
+          <RefreshCw className={`size-4 ${loading ? 'animate-spin' : ''}`} />
+          Actualiser
+        </button>
+      </div>
+
+      {error ? (
+        <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+          {error}
+        </div>
+      ) : null}
+
+      <div className="overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-sm">
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-left text-sm">
+            <thead className="bg-slate-50 text-slate-500">
+              <tr>
+                <th className="px-4 py-3 font-medium">Date</th>
+                <th className="px-4 py-3 font-medium">Utilisateur</th>
+                <th className="px-4 py-3 font-medium">Action</th>
+                <th className="px-4 py-3 font-medium">Table</th>
+                <th className="px-4 py-3 font-medium">Élément</th>
+                <th className="px-4 py-3 font-medium">Champs modifiés</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              {logs.map((log) => (
+                <tr
+                  key={log.id}
+                  onClick={() => setSelectedLog(log)}
+                  className="cursor-pointer border-t border-slate-100 text-slate-700 transition hover:bg-indigo-50/60"
+                >
+                  <td className="px-4 py-3">
+                    {new Date(log.created_at).toLocaleString()}
+                  </td>
+                  <td className="px-4 py-3">
+                    {log.user_name || log.user_email || '—'}
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium">
+                      {log.action}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3">{log.entity}</td>
+                  <td className="px-4 py-3">{log.entity_id || '—'}</td>
+                  <td className="px-4 py-3">
+                    {log.changed_fields
+                      ? Object.keys(log.changed_fields).join(', ')
+                      : '—'}
+                  </td>
+                </tr>
+              ))}
+
+              {logs.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="px-4 py-8 text-slate-400">
+                    Aucun log disponible.
+                  </td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {selectedLog ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
+          <div className="max-h-[90vh] w-full max-w-4xl overflow-hidden rounded-[28px] bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+              <div>
+                <div className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                  {selectedLog.entity} #{selectedLog.entity_id}
+                </div>
+                <h2 className="mt-1 text-2xl font-semibold text-slate-900">
+                  Détail du changement
+                </h2>
+              </div>
+
+              <button
+                onClick={() => setSelectedLog(null)}
+                className="rounded-xl border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50"
+              >
+                Fermer
+              </button>
+            </div>
+
+            <div className="max-h-[70vh] overflow-y-auto p-6">
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="rounded-2xl border border-slate-200 p-4">
+                  <div className="text-sm font-semibold text-slate-700">
+                    Informations
+                  </div>
+                  <div className="mt-3 space-y-2 text-sm text-slate-600">
+                    <div>Action : {selectedLog.action}</div>
+                    <div>Table : {selectedLog.entity}</div>
+                    <div>Élément : {selectedLog.entity_id || '—'}</div>
+                    <div>
+                      Utilisateur : {selectedLog.user_name || selectedLog.user_email || '—'}
+                    </div>
+                    <div>
+                      Date : {new Date(selectedLog.created_at).toLocaleString()}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-slate-200 p-4">
+                  <div className="text-sm font-semibold text-slate-700">
+                    Champs modifiés
+                  </div>
+
+                  <div className="mt-3 space-y-3 text-sm">
+                    {selectedLog.changed_fields ? (
+                      Object.entries(selectedLog.changed_fields).map(([field, change]) => (
+                        <div key={field} className="rounded-xl bg-slate-50 p-3">
+                          <div className="font-medium text-slate-800">{field}</div>
+                          <div className="mt-1 text-xs text-slate-500">
+                            Avant : {formatValue(change.before)}
+                          </div>
+                          <div className="text-xs text-slate-500">
+                            Après : {formatValue(change.after)}
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="text-slate-400">Aucun détail.</div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-6 grid gap-4 md:grid-cols-2">
+                <div>
+                  <h3 className="mb-2 text-sm font-semibold text-slate-700">
+                    Avant
+                  </h3>
+                  <pre className="max-h-80 overflow-auto rounded-2xl bg-slate-950 p-4 text-xs text-slate-100">
+                    {JSON.stringify(selectedLog.before_data, null, 2)}
+                  </pre>
+                </div>
+
+                <div>
+                  <h3 className="mb-2 text-sm font-semibold text-slate-700">
+                    Après
+                  </h3>
+                  <pre className="max-h-80 overflow-auto rounded-2xl bg-slate-950 p-4 text-xs text-slate-100">
+                    {JSON.stringify(selectedLog.after_data, null, 2)}
+                  </pre>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 function AdministrationPanel({
   auth,
@@ -792,6 +1455,7 @@ function isReadOnlyColumn(column: string) {
     'created_at',
     'updated_at',
     'deleted_at',
+    'old_uniqueid',
     'password',
     'password_hash',
     'encrypted_password',
@@ -973,6 +1637,10 @@ export default function App() {
   const [modalLoading, setModalLoading] = useState(false);
   const [modalSaving, setModalSaving] = useState(false);
   const [modalError, setModalError] = useState<string | null>(null);
+  const [quoteModalOpen, setQuoteModalOpen] = useState(false);
+  const [quoteInitialValue, setQuoteInitialValue] = useState<QuoteForm>(() => buildDefaultQuoteForm());
+  const [quoteGenerating, setQuoteGenerating] = useState(false);
+  const [quoteError, setQuoteError] = useState<string | null>(null);
 
   async function openRecord(row: EntityRow) {
     if (!auth?.token) return;
@@ -1096,6 +1764,29 @@ export default function App() {
       setModalError(err instanceof Error ? err.message : 'Enregistrement impossible');
     } finally {
       setModalSaving(false);
+    }
+  }
+
+
+  function openQuoteModal() {
+    setQuoteInitialValue(buildDefaultQuoteForm());
+    setQuoteError(null);
+    setQuoteModalOpen(true);
+  }
+
+  async function handleGenerateQuote(values: QuoteForm) {
+    if (!auth?.token) return;
+
+    setQuoteGenerating(true);
+    setQuoteError(null);
+
+    try {
+      await generateQuoteDocx(auth.token, values, setAuth);
+      setQuoteModalOpen(false);
+    } catch (err) {
+      setQuoteError(err instanceof Error ? err.message : 'Génération du devis impossible');
+    } finally {
+      setQuoteGenerating(false);
     }
   }
 
@@ -1317,6 +2008,14 @@ export default function App() {
               </div>
 
               <button
+                onClick={openQuoteModal}
+                className="flex items-center gap-2 rounded-2xl bg-[#2F2F2F] px-4 py-3 text-sm font-medium text-white hover:bg-[#4E4E4E]"
+              >
+                <FileText className="size-4" />
+                Générer un devis
+              </button>
+
+              <button
                 onClick={refreshData}
                 className="flex items-center gap-2 rounded-2xl border border-[#E8E3DF] bg-white px-4 py-3 text-sm text-[#4E4E4E] hover:bg-[#F8F7F6]"
               >
@@ -1354,13 +2053,34 @@ export default function App() {
 
           <div className="mt-6">
             {activeTab === 'ADMINISTRATION' ? (
-              <AdministrationPanel auth={auth} onTokenRefresh={setAuth} />
+              <AdministrationPanel
+                auth={auth}
+                onTokenRefresh={setAuth}
+              />
+            ) : activeTab === 'LOGS' ? (
+              <LogsPanel
+                auth={auth}
+                onTokenRefresh={setAuth}
+              />
             ) : (
               <Panel activeTab={activeTab} payload={payload} onRowClick={openRecord} />
             )}
           </div>
         </section>
       </div>
+
+      {quoteModalOpen ? (
+        <QuoteModal
+          initialValue={quoteInitialValue}
+          generating={quoteGenerating}
+          error={quoteError}
+          onClose={() => {
+            setQuoteModalOpen(false);
+            setQuoteError(null);
+          }}
+          onGenerate={handleGenerateQuote}
+        />
+      ) : null}
 
       {modalLoading ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#2F2F2F]/60 text-white backdrop-blur-sm">

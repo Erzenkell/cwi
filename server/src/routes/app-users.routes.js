@@ -165,6 +165,7 @@ const ALL_TABS = [
   'SYNTHÈSE',
   'MEILLEURS CLIENTS',
   'ADMINISTRATION',
+  'LOGS',
 ];
 
 router.get('/:id/permissions', async (req, res) => {

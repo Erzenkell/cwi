@@ -22,7 +22,7 @@ import { refreshSession, logout } from './lib/auth';
 type Role = 'employee' | 'admin';
 type EmployeeTab = 'COMPTES' | 'CONTACTS' | 'OPPORTUNITÉS' | 'SOUS-TRAITANT';
 type AdminTab =
-  | 'PISTES'
+  // | 'PISTES'
   | 'FACTURES'
   | 'SYNTHÈSE'
   | 'MEILLEURS CLIENTS'
@@ -37,6 +37,7 @@ type AuthResponse = {
     email: string;
     role: Role;
     fullName: string;
+    permissions: Tab[];
   };
 };
 
@@ -49,6 +50,11 @@ type UserOption = {
   label: string;
 };
 
+type UserPermission = {
+  tab_key: Tab;
+  can_access: boolean;
+};
+
 const API_URL = (import.meta as any).env?.VITE_API_URL || 'http://localhost:4000/api';
 
 const employeeTabs: { label: EmployeeTab; icon: ComponentType<any> }[] = [
@@ -59,7 +65,7 @@ const employeeTabs: { label: EmployeeTab; icon: ComponentType<any> }[] = [
 ];
 
 const adminTabs: { label: AdminTab; icon: ComponentType<any> }[] = [
-  { label: 'PISTES', icon: BriefcaseBusiness },
+  // { label: 'PISTES', icon: BriefcaseBusiness },
   { label: 'FACTURES', icon: FileText },
   { label: 'SYNTHÈSE', icon: ChartNoAxesCombined },
   { label: 'MEILLEURS CLIENTS', icon: TrendingUp },
@@ -72,7 +78,7 @@ const tabToKey: Record<Tab, string> = {
   CONTACTS: 'contacts',
   OPPORTUNITÉS: 'opportunities',
   'SOUS-TRAITANT': 'subcontractors',
-  PISTES: 'leads',
+  // PISTES: 'leads',
   FACTURES: 'invoices',
   SYNTHÈSE: 'summary',
   'MEILLEURS CLIENTS': 'topClients',
@@ -85,7 +91,7 @@ const tabToEntity: Record<Tab, string | null> = {
   CONTACTS: 'contacts',
   OPPORTUNITÉS: 'opportunities',
   'SOUS-TRAITANT': 'suppliers',
-  PISTES: 'leads',
+  // PISTES: 'leads',
   FACTURES: 'abstract_invoices',
   SYNTHÈSE: null,
   'MEILLEURS CLIENTS': null,
@@ -114,11 +120,11 @@ const tabMeta: Record<Tab, { title: string; subtitle: string; columns: string[] 
     subtitle: 'Sous-traitants issus de la table suppliers/subcontractors.',
     columns: ['Nom', 'Société', 'Email', 'Téléphone', 'Localisation', 'Spécialité'],
   },
-  PISTES: {
-    title: 'Pistes',
-    subtitle: 'Pistes commerciales issues de la table leads.',
-    columns: ['Nom', 'Société', 'Statut', 'Source', 'Email', 'Téléphone', 'Note'],
-  },
+  // PISTES: {
+  //   title: 'Pistes',
+  //   subtitle: 'Pistes commerciales issues de la table leads.',
+  //   columns: ['Nom', 'Société', 'Statut', 'Source', 'Email', 'Téléphone', 'Note'],
+  // },
   FACTURES: {
     title: 'Factures',
     subtitle: 'Factures issues de la base PostgreSQL.',
@@ -457,6 +463,35 @@ function Panel({
   );
 }
 
+async function fetchUserPermissions(
+  token: string,
+  userId: number,
+  onTokenRefresh?: (data: AuthResponse) => void
+) {
+  return api<{ permissions: UserPermission[] }>(
+    `/app-users/${userId}/permissions`,
+    {},
+    token,
+    onTokenRefresh
+  );
+}
+
+async function updateUserPermissions(
+  token: string,
+  userId: number,
+  permissions: UserPermission[],
+  onTokenRefresh?: (data: AuthResponse) => void
+) {
+  return api<{ success: boolean }>(
+    `/app-users/${userId}/permissions`,
+    {
+      method: 'PUT',
+      body: JSON.stringify({ permissions }),
+    },
+    token,
+    onTokenRefresh
+  );
+}
 
 function AdministrationPanel({
   auth,
@@ -469,6 +504,10 @@ function AdministrationPanel({
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const [permissionUser, setPermissionUser] = useState<AppUser | null>(null);
+  const [permissions, setPermissions] = useState<UserPermission[]>([]);
+  const [permissionSaving, setPermissionSaving] = useState(false);
 
   const [form, setForm] = useState({
     email: '',
@@ -559,6 +598,56 @@ function AdministrationPanel({
       full_name: user.full_name,
       role: user.role,
     });
+  }
+
+  async function openPermissions(user: AppUser) {
+    setPermissionUser(user);
+    setError(null);
+
+    try {
+      const data = await fetchUserPermissions(auth.token, user.id, onTokenRefresh);
+      setPermissions(data.permissions);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Chargement permissions impossible');
+    }
+  }
+
+  async function savePermissions() {
+    if (!permissionUser) return;
+
+    setPermissionSaving(true);
+    setError(null);
+
+    try {
+      await updateUserPermissions(
+        auth.token,
+        permissionUser.id,
+        permissions,
+        onTokenRefresh
+      );
+
+      if (permissionUser.id === auth.user.id) {
+        const refreshed = await refreshSession();
+        if (refreshed?.token) {
+          onTokenRefresh(refreshed);
+        }
+      }
+
+      if (
+        permissionUser.id === auth.user.id &&
+        permissions.some((p) => p.tab_key === 'ADMINISTRATION' && !p.can_access)
+      ) {
+        setError("Tu ne peux pas retirer ton propre accès à l'administration.");
+        return;
+      }
+
+      setPermissionUser(null);
+      setPermissions([]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Sauvegarde permissions impossible');
+    } finally {
+      setPermissionSaving(false);
+    }
   }
 
   return (
@@ -714,6 +803,13 @@ function AdministrationPanel({
                         >
                           Supprimer
                         </button>
+
+                        <button
+                          onClick={() => openPermissions(user)}
+                          className="rounded-xl border border-indigo-200 px-3 py-2 text-xs text-indigo-600 hover:bg-indigo-50"
+                        >
+                          Droits
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -721,6 +817,67 @@ function AdministrationPanel({
               )}
             </tbody>
           </table>
+          {permissionUser ? (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
+              <div className="w-full max-w-xl rounded-[28px] bg-white shadow-2xl">
+                <div className="border-b border-slate-200 px-6 py-4">
+                  <h2 className="text-xl font-semibold text-slate-900">
+                    Droits de {permissionUser.full_name}
+                  </h2>
+                  <p className="mt-1 text-sm text-slate-500">
+                    Choisis les onglets accessibles pour cet utilisateur.
+                  </p>
+                </div>
+
+                <div className="space-y-3 p-6">
+                  {permissions.map((permission) => (
+                    <label
+                      key={permission.tab_key}
+                      className="flex items-center justify-between rounded-2xl border border-slate-200 px-4 py-3"
+                    >
+                      <span className="font-medium text-slate-700">
+                        {permission.tab_key}
+                      </span>
+
+                      <input
+                        type="checkbox"
+                        checked={permission.can_access}
+                        onChange={(e) => {
+                          setPermissions((current) =>
+                            current.map((item) =>
+                              item.tab_key === permission.tab_key
+                                ? { ...item, can_access: e.target.checked }
+                                : item
+                            )
+                          );
+                        }}
+                      />
+                    </label>
+                  ))}
+                </div>
+
+                <div className="flex justify-end gap-3 border-t border-slate-200 px-6 py-4">
+                  <button
+                    onClick={() => {
+                      setPermissionUser(null);
+                      setPermissions([]);
+                    }}
+                    className="rounded-2xl border border-slate-200 px-5 py-3 text-sm text-slate-600 hover:bg-slate-50"
+                  >
+                    Annuler
+                  </button>
+
+                  <button
+                    disabled={permissionSaving}
+                    onClick={savePermissions}
+                    className="rounded-2xl bg-indigo-500 px-5 py-3 text-sm font-medium text-white hover:bg-indigo-400 disabled:opacity-60"
+                  >
+                    {permissionSaving ? 'Sauvegarde...' : 'Sauvegarder'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : null}
         </div>
       </div>
     </div>
@@ -1111,8 +1268,13 @@ export default function App() {
   }
 
   const tabs = useMemo(() => {
-    if (auth?.user.role === 'admin') return adminTabs;
-    return employeeTabs;
+    const allTabs = auth?.user.role === 'admin'
+      ? [...employeeTabs, ...adminTabs]
+      : employeeTabs;
+
+    const permissions = auth?.user.permissions || [];
+
+    return allTabs.filter((tab) => permissions.includes(tab.label));
   }, [auth]);
 
   useEffect(() => {
@@ -1346,13 +1508,13 @@ export default function App() {
               </button>
             </div>
           </header>
-
+          {/* 
           <div className="mt-6 grid gap-4 md:grid-cols-3 xl:grid-cols-4">
             <KpiCard label="Modules actifs" value={String(tabs.length)} icon={<Layers3 className="size-4" />} />
             <KpiCard label="Rôle" value={auth.user.role === 'admin' ? 'Admin' : 'Salarié'} icon={<Shield className="size-4" />} />
             <KpiCard label="Backend" value={dataLoading ? 'Sync...' : 'Connecté'} icon={<BriefcaseBusiness className="size-4" />} />
             <KpiCard label="Base" value="PostgreSQL" icon={<Building2 className="size-4" />} />
-          </div>
+          </div> */}
 
           {error ? (
             <div className="mt-6 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">

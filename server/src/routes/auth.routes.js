@@ -110,13 +110,16 @@ router.post('/login', async (req, res) => {
 
   const accessToken = signAccessToken(user);
 
+  const permissions = await getUserTabPermissions(user.id, user.role);
+
   res.json({
-    token: accessToken,
+    token,
     user: {
       id: user.id,
       email: user.email,
       role: user.role,
       fullName: user.full_name,
+      permissions,
     },
   });
 });
@@ -172,6 +175,8 @@ router.post('/refresh', async (req, res) => {
     full_name: session.full_name,
   };
 
+  const permissions = await getUserTabPermissions(user.id, user.role);
+
   const accessToken = signAccessToken(user);
 
   res.json({
@@ -181,6 +186,7 @@ router.post('/refresh', async (req, res) => {
       email: user.email,
       role: user.role,
       fullName: user.full_name,
+      permissions,
     },
   });
 });
@@ -245,3 +251,32 @@ router.post('/logout-all', async (req, res) => {
 });
 
 export default router;
+
+async function getUserTabPermissions(userId, role) {
+  if (role === 'admin') {
+    return [
+      'COMPTES',
+      'CONTACTS',
+      'OPPORTUNITÉS',
+      'SOUS-TRAITANT',
+      // 'PISTES',
+      'FACTURES',
+      'SYNTHÈSE',
+      'MEILLEURS CLIENTS',
+      'ADMINISTRATION',
+    ];
+  }
+
+  const result = await query(
+    `
+    SELECT tab_key
+    FROM crm_app_user_tab_permissions
+    WHERE user_id = $1
+      AND can_access = true
+    ORDER BY tab_key ASC
+    `,
+    [userId]
+  );
+
+  return result.rows.map((row) => row.tab_key);
+}

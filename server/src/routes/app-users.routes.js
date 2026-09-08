@@ -154,3 +154,98 @@ router.delete('/:id', async (req, res) => {
 });
 
 export default router;
+
+const ALL_TABS = [
+  'COMPTES',
+  'CONTACTS',
+  'OPPORTUNITÉS',
+  'SOUS-TRAITANT',
+  // 'PISTES',
+  'FACTURES',
+  'SYNTHÈSE',
+  'MEILLEURS CLIENTS',
+  'ADMINISTRATION',
+];
+
+router.get('/:id/permissions', async (req, res) => {
+  try {
+    const result = await query(
+      `
+      SELECT tab_key, can_access
+      FROM crm_app_user_tab_permissions
+      WHERE user_id = $1
+      `,
+      [req.params.id]
+    );
+
+    const existing = new Map(
+      result.rows.map((row) => [row.tab_key, row.can_access])
+    );
+
+    const permissions = ALL_TABS.map((tab) => ({
+      tab_key: tab,
+      can_access: existing.get(tab) ?? false,
+    }));
+
+    res.json({ permissions });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Erreur chargement permissions' });
+  }
+});
+
+router.put('/:id/permissions', async (req, res) => {
+  try {
+    const { permissions } = req.body;
+
+    if (!Array.isArray(permissions)) {
+      return res.status(400).json({ message: 'permissions doit être un tableau' });
+    }
+
+    if (Number(req.params.id) === Number(req.user.sub)) {
+      const adminPermission = permissions.find(
+        (p) => p.tab_key === 'ADMINISTRATION'
+      );
+
+      if (adminPermission && adminPermission.can_access === false) {
+        return res.status(400).json({
+          message: "Tu ne peux pas retirer ton propre accès à l'administration",
+        });
+      }
+    }
+
+    for (const permission of permissions) {
+      if (!ALL_TABS.includes(permission.tab_key)) {
+        return res.status(400).json({
+          message: `Onglet invalide : ${permission.tab_key}`,
+        });
+      }
+
+      await query(
+        `
+        INSERT INTO crm_app_user_tab_permissions (
+          user_id,
+          tab_key,
+          can_access,
+          updated_at
+        )
+        VALUES ($1, $2, $3, NOW())
+        ON CONFLICT (user_id, tab_key)
+        DO UPDATE SET
+          can_access = EXCLUDED.can_access,
+          updated_at = NOW()
+        `,
+        [
+          req.params.id,
+          permission.tab_key,
+          Boolean(permission.can_access),
+        ]
+      );
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Erreur sauvegarde permissions' });
+  }
+});

@@ -251,25 +251,48 @@ async function invoicesView() {
   `);
 }
 
-router.get('/', async (_req, res) => {
+router.get('/', async (req, res) => {
   try {
-    const [accounts, contacts, opportunities, subcontractors, leads, invoices] = await Promise.all([
-      accountsView(),
-      contactsView(),
-      opportunitiesView(),
-      suppliersView(),
-      leadsView(),
-      invoicesView(),
-    ]);
+    const allowedTabs = await getAllowedTabs(req.user);
 
-    res.json({
-      accounts: accounts.rows,
-      contacts: contacts.rows,
-      opportunities: opportunities.rows,
-      subcontractors: subcontractors.rows,
-      leads: leads.rows,
-      invoices: invoices.rows,
-    });
+    const payload = {
+      accounts: [],
+      contacts: [],
+      opportunities: [],
+      subcontractors: [],
+      leads: [],
+      invoices: [],
+    };
+
+    const tasks = [];
+
+    if (allowedTabs.includes('COMPTES')) {
+      tasks.push(accountsView().then((r) => { payload.accounts = r.rows; }));
+    }
+
+    if (allowedTabs.includes('CONTACTS')) {
+      tasks.push(contactsView().then((r) => { payload.contacts = r.rows; }));
+    }
+
+    if (allowedTabs.includes('OPPORTUNITÉS')) {
+      tasks.push(opportunitiesView().then((r) => { payload.opportunities = r.rows; }));
+    }
+
+    if (allowedTabs.includes('SOUS-TRAITANT')) {
+      tasks.push(suppliersView().then((r) => { payload.subcontractors = r.rows; }));
+    }
+
+    if (allowedTabs.includes('PISTES')) {
+      tasks.push(leadsView().then((r) => { payload.leads = r.rows; }));
+    }
+
+    if (allowedTabs.includes('FACTURES')) {
+      tasks.push(invoicesView().then((r) => { payload.invoices = r.rows; }));
+    }
+
+    await Promise.all(tasks);
+
+    res.json(payload);
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: err.message });
@@ -277,3 +300,31 @@ router.get('/', async (_req, res) => {
 });
 
 export default router;
+
+async function getAllowedTabs(user) {
+  if (user.role === 'admin') {
+    return [
+      'COMPTES',
+      'CONTACTS',
+      'OPPORTUNITÉS',
+      'SOUS-TRAITANT',
+      // 'PISTES',
+      'FACTURES',
+      'SYNTHÈSE',
+      'MEILLEURS CLIENTS',
+      'ADMINISTRATION',
+    ];
+  }
+
+  const result = await query(
+    `
+    SELECT tab_key
+    FROM crm_app_user_tab_permissions
+    WHERE user_id = $1
+      AND can_access = true
+    `,
+    [user.sub]
+  );
+
+  return result.rows.map((row) => row.tab_key);
+}

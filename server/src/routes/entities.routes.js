@@ -126,9 +126,13 @@ async function opportunitiesView() {
     `
     : '';
 
+  const stageColumn = firstColumn(o, ['stage', 'status', 'state']);
+
   return query(`
     SELECT
       ${entityMeta('o', o, 'opportunities')},
+      ${stageColumn ? `'${stageColumn}'` : 'NULL'} AS _stage_column,
+
       ${textExpr('o', o, ['name', 'label', 'title', 'subject'])} AS opportunite,
       ${canJoinAccount ? textExpr('a', a, ['name', 'company', 'account_name']) : `'—'`} AS compte,
       ${moneyExpr('o', o, ['amount', 'value', 'revenue', 'budget'])} AS montant,

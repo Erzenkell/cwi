@@ -24,7 +24,11 @@ import wordsinvestLogo from '../assets/wordsinvest-logo.png';
 type Role = 'employee' | 'admin';
 type EmployeeTab = 'COMPTES' | 'CONTACTS' | 'OPPORTUNITÉS' | 'SOUS-TRAITANT';
 type AdminTab =
-  | 'PISTES'
+  'COMPTES' 
+  | 'CONTACTS' 
+  | 'OPPORTUNITÉS' 
+  | 'SOUS-TRAITANT'
+  // | 'PISTES'
   | 'FACTURES'
   | 'SYNTHÈSE'
   | 'MEILLEURS CLIENTS'
@@ -60,6 +64,19 @@ type AuditLog = {
   user_email: string | null;
 };
 
+type OpportunityRow = EntityRow & {
+  _id: number;
+  _entity: string;
+  _stage_column?: string | null;
+  opportunite: string;
+  compte: string;
+  montant: string;
+  etape: string;
+  probabilite: string;
+  langues: string;
+  prestation: string;
+};
+
 async function fetchAuditLogs(
   token: string,
   onTokenRefresh?: (data: AuthResponse) => void
@@ -82,7 +99,11 @@ const employeeTabs: { label: EmployeeTab; icon: ComponentType<any> }[] = [
 ];
 
 const adminTabs: { label: AdminTab; icon: ComponentType<any> }[] = [
-  { label: 'PISTES', icon: BriefcaseBusiness },
+  { label: 'COMPTES', icon: Building2 },
+  { label: 'CONTACTS', icon: Users },
+  { label: 'OPPORTUNITÉS', icon: Target },
+  { label: 'SOUS-TRAITANT', icon: Handshake },
+  // { label: 'PISTES', icon: BriefcaseBusiness },
   { label: 'FACTURES', icon: FileText },
   { label: 'SYNTHÈSE', icon: ChartNoAxesCombined },
   { label: 'MEILLEURS CLIENTS', icon: TrendingUp },
@@ -96,7 +117,7 @@ const tabToKey: Record<Tab, string> = {
   CONTACTS: 'contacts',
   OPPORTUNITÉS: 'opportunities',
   'SOUS-TRAITANT': 'subcontractors',
-  PISTES: 'leads',
+  // PISTES: 'leads',
   FACTURES: 'invoices',
   SYNTHÈSE: 'summary',
   'MEILLEURS CLIENTS': 'topClients',
@@ -110,7 +131,7 @@ const tabToEntity: Record<Tab, string | null> = {
   CONTACTS: 'contacts',
   OPPORTUNITÉS: 'opportunities',
   'SOUS-TRAITANT': 'suppliers',
-  PISTES: 'leads',
+  // PISTES: 'leads',
   FACTURES: 'abstract_invoices',
   SYNTHÈSE: null,
   'MEILLEURS CLIENTS': null,
@@ -140,11 +161,11 @@ const tabMeta: Record<Tab, { title: string; subtitle: string; columns: string[] 
     subtitle: 'Sous-traitants issus de la table suppliers/subcontractors.',
     columns: ['Nom', 'Société', 'Email', 'Téléphone', 'Localisation', 'Spécialité'],
   },
-  PISTES: {
-    title: 'Pistes',
-    subtitle: 'Pistes commerciales issues de la table leads.',
-    columns: ['Nom', 'Société', 'Statut', 'Source', 'Email', 'Téléphone', 'Note'],
-  },
+  // PISTES: {
+  //   title: 'Pistes',
+  //   subtitle: 'Pistes commerciales issues de la table leads.',
+  //   columns: ['Nom', 'Société', 'Statut', 'Source', 'Email', 'Téléphone', 'Note'],
+  // },
   FACTURES: {
     title: 'Factures',
     subtitle: 'Factures issues de la base PostgreSQL.',
@@ -326,6 +347,15 @@ const CREATE_VISIBLE_FIELDS: Record<string, string[]> = {
     'notes',
   ],
 };
+
+const OPPORTUNITY_STAGE_OPTIONS = [
+  'lance_s_t',
+  'facture',
+  'livre',
+  'converted',
+  'En attente',
+  'Annulée',
+];
 
 function shouldShowColumnInModal(payload: RecordModalPayload, columnName: string) {
   if (isReadOnlyColumn(columnName)) return false;
@@ -914,6 +944,17 @@ function Panel({
         token={authToken}
         onSaved={onRefresh}
         onGenerateInvoice={onGenerateInvoice}
+      />
+    );
+  }
+
+  if (activeTab === 'OPPORTUNITÉS') {
+    return (
+      <OpportunitiesQuickTable
+        rows={(payload.opportunities || []) as OpportunityRow[]}
+        token={authToken}
+        onSaved={onRefresh}
+        onRowClick={onRowClick}
       />
     );
   }
@@ -2410,6 +2451,136 @@ function EditRecordModal({
           >
             {saving ? 'Enregistrement...' : 'Enregistrer'}
           </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+function OpportunitiesQuickTable({
+  rows,
+  token,
+  onSaved,
+  onRowClick,
+}: {
+  rows: OpportunityRow[];
+  token: string;
+  onSaved: () => Promise<void> | void;
+  onRowClick: (row: EntityRow) => void;
+}) {
+  const [savingRowId, setSavingRowId] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const dynamicStageOptions = Array.from(
+    new Set([
+      ...OPPORTUNITY_STAGE_OPTIONS,
+      ...rows
+        .map((row) => String(row.etape || '').trim())
+        .filter((value) => value && value !== '—'),
+    ])
+  );
+
+  async function quickUpdateStage(row: OpportunityRow, stage: string) {
+    if (!row._id || !row._entity || !row._stage_column) {
+      setError("Impossible de modifier l'étape : colonne introuvable.");
+      return;
+    }
+
+    setSavingRowId(row._id);
+    setError(null);
+
+    try {
+      await api(
+        `/records/${row._entity}/${row._id}`,
+        {
+          method: 'PATCH',
+          body: JSON.stringify({
+            [row._stage_column]: stage,
+          }),
+        },
+        token
+      );
+
+      await onSaved();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Modification de l'étape impossible");
+    } finally {
+      setSavingRowId(null);
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      {error ? (
+        <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+          {error}
+        </div>
+      ) : null}
+
+      <div className="overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-sm">
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-left text-sm">
+            <thead className="bg-slate-50 text-slate-500">
+              <tr>
+                <th className="px-4 py-3 font-medium">Opportunité</th>
+                <th className="px-4 py-3 font-medium">Compte</th>
+                <th className="px-4 py-3 font-medium">Montant</th>
+                <th className="px-4 py-3 font-medium">Étape</th>
+                <th className="px-4 py-3 font-medium">Probabilité</th>
+                <th className="px-4 py-3 font-medium">Langues</th>
+                <th className="px-4 py-3 font-medium">Prestation</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              {rows.length === 0 ? (
+                <tr>
+                  <td className="px-4 py-8 text-slate-400" colSpan={7}>
+                    Aucune opportunité.
+                  </td>
+                </tr>
+              ) : (
+                rows.map((row) => {
+                  const saving = savingRowId === row._id;
+
+                  return (
+                    <tr
+                      key={row._id}
+                      onClick={() => onRowClick(row)}
+                      className="cursor-pointer border-t border-slate-100 text-slate-700 transition hover:bg-indigo-50/60"
+                    >
+                      <td className="px-4 py-3">{formatValue(row.opportunite)}</td>
+                      <td className="px-4 py-3">{formatValue(row.compte)}</td>
+                      <td className="px-4 py-3">{formatValue(row.montant)}</td>
+
+                      <td className="px-4 py-3">
+                        <select
+                          value={row.etape || ''}
+                          disabled={saving || !row._stage_column}
+                          onClick={(e) => e.stopPropagation()}
+                          onChange={(e) => quickUpdateStage(row, e.target.value)}
+                          className="w-full min-w-[150px] rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-indigo-400 disabled:cursor-not-allowed disabled:bg-slate-100"
+                        >
+                          <option value="">—</option>
+
+                          {dynamicStageOptions.map((stage) => (
+                            <option key={stage} value={stage}>
+                              {stage}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+
+                      <td className="px-4 py-3">{formatValue(row.probabilite)}</td>
+                      <td className="px-4 py-3">{formatValue(row.langues)}</td>
+                      <td className="px-4 py-3">{formatValue(row.prestation)}</td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
         </div>
       </div>
     </div>

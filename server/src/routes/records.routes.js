@@ -29,27 +29,62 @@ function isEmptyCreateValue(value) {
   return value === undefined || value === null || value === '';
 }
 
-function applyCreateDefaults(tableName, payload, columnNames) {
-  if (tableName === 'abstract_invoices') {
-    if (columnNames.includes('old_uniqueid') && isEmptyCreateValue(payload.old_uniqueid)) {
-      payload.old_uniqueid = generateOldUniqueId();
-    }
+async function resolveDefaultUserId(req) {
+  try {
+    const result = await query(
+      `
+      SELECT id
+      FROM users
+      WHERE LOWER(email) = LOWER($1)
+      LIMIT 1
+      `,
+      [req.user?.email || '']
+    );
 
-    if (columnNames.includes('currency') && isEmptyCreateValue(payload.currency)) {
-      payload.currency = 'EUR';
+    if (result.rows[0]?.id) {
+      return result.rows[0].id;
     }
+  } catch {
+    // Si la table legacy users n'a pas l'email ou n'existe pas,
+    // on utilise l'utilisateur de l'application.
+  }
 
-    if (columnNames.includes('status') && isEmptyCreateValue(payload.status)) {
-      payload.status = 'En attente';
-    }
+  return req.user?.sub || null;
+}
 
-    if (columnNames.includes('type') && isEmptyCreateValue(payload.type)) {
-      payload.type = 'Invoice';
-    }
+async function applyCreateDefaults(tableName, payload, columnNames, req) {
+  const currentUserId = await resolveDefaultUserId(req);
 
-    if (columnNames.includes('invoice_year') && isEmptyCreateValue(payload.invoice_year)) {
-      payload.invoice_year = new Date().getFullYear();
-    }
+  if (columnNames.includes('user_id') && isEmptyCreateValue(payload.user_id)) {
+    payload.user_id = currentUserId;
+  }
+
+  if (columnNames.includes('assigned_to') && isEmptyCreateValue(payload.assigned_to)) {
+    payload.assigned_to = currentUserId;
+  }
+
+  if (columnNames.includes('status') && isEmptyCreateValue(payload.status)) {
+    payload.status = 'En attente';
+  }
+
+  if (columnNames.includes('state') && isEmptyCreateValue(payload.state)) {
+    payload.state = 'En attente';
+  }
+
+  if (columnNames.includes('access') && isEmptyCreateValue(payload.access)) {
+    payload.access = 'Public';
+  }
+
+  if (columnNames.includes('currency') && isEmptyCreateValue(payload.currency)) {
+    payload.currency = 'EUR';
+  }
+
+  if (columnNames.includes('invoice_year') && isEmptyCreateValue(payload.invoice_year)) {
+    payload.invoice_year = new Date().getFullYear();
+  }
+
+  if (columnNames.includes('old_uniqueid') && isEmptyCreateValue(payload.old_uniqueid)) {
+    payload.old_uniqueid = generateOldUniqueId();
   }
 
   return payload;
@@ -297,7 +332,12 @@ router.post('/:entity', async (req, res) => {
       rawPayload[key] = normalizeValue(value);
     }
 
-    const payload = applyCreateDefaults(tableName, rawPayload, columnNames);
+    const payload = await applyCreateDefaults(
+      tableName,
+      rawPayload,
+      columnNames,
+      req
+    );
 
     const entries = Object.entries(payload)
       .filter(([key]) => columnNames.includes(key))

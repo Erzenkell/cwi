@@ -172,26 +172,51 @@ async function suppliersView() {
 }
 
 async function leadsView() {
-  const missing = await emptyIfMissing('leads');
-  if (missing) return missing;
+  const tableExists = await hasTable('leads');
+  if (!tableExists) return { rows: [] };
 
   const l = await getColumns('leads');
 
-  return query(`
+  const whereSql = hasColumn(l, 'deleted_at')
+    ? 'WHERE l.deleted_at IS NULL'
+    : '';
+
+  const noteExpr = hasColumn(l, 'rating')
+    ? 'l.rating'
+    : hasColumn(l, 'score')
+      ? 'l.score'
+      : '0';
+
+  const firstNameExpr = hasColumn(l, 'first_name') ? "COALESCE(l.first_name, '')" : "''";
+  const lastNameExpr = hasColumn(l, 'last_name') ? "COALESCE(l.last_name, '')" : "''";
+  const companyExpr = hasColumn(l, 'company') ? "COALESCE(NULLIF(l.company::text, ''), '—')" : "'—'";
+  const statusExpr = hasColumn(l, 'status') ? "COALESCE(NULLIF(l.status::text, ''), 'En attente')" : "'En attente'";
+  const sourceExpr = hasColumn(l, 'source') ? "COALESCE(NULLIF(l.source::text, ''), '—')" : "'—'";
+  const emailExpr = hasColumn(l, 'email') ? "COALESCE(NULLIF(l.email::text, ''), '—')" : "'—'";
+  const phoneExpr = hasColumn(l, 'phone') ? "COALESCE(NULLIF(l.phone::text, ''), '—')" : "'—'";
+
+  const result = await query(`
     SELECT
-      ${entityMeta('l', l, 'leads')},
-      ${concatNameExpr('l', l)} AS nom,
-      ${textExpr('l', l, ['company', 'company_name', 'account_name'])} AS societe,
-      ${textExpr('l', l, ['status', 'state'])} AS statut,
-      ${textExpr('l', l, ['source', 'origin'])} AS source,
-      ${textExpr('l', l, ['email', 'alt_email', 'email_address'])} AS email,
-      ${textExpr('l', l, ['phone', 'mobile', 'alt_phone', 'telephone'])} AS telephone,
-      ${rawExpr('l', l, ['rating', 'score'], 'NULL')} AS note
+      l.id AS _id,
+      'leads' AS _entity,
+      COALESCE(
+        NULLIF(TRIM(CONCAT(${firstNameExpr}, ' ', ${lastNameExpr})), ''),
+        ${companyExpr},
+        '—'
+      ) AS nom,
+      ${companyExpr} AS societe,
+      ${statusExpr} AS statut,
+      ${sourceExpr} AS source,
+      ${emailExpr} AS email,
+      ${phoneExpr} AS telephone,
+      ${noteExpr} AS note
     FROM leads l
-    ${whereNotDeleted('l', l)}
-    ${orderBy('l', l)}
+    ${whereSql}
+    ORDER BY l.id DESC
     LIMIT 50
   `);
+
+  return result;
 }
 
 async function invoicesView() {
@@ -211,20 +236,22 @@ async function invoicesView() {
 
   const invoiceYear = firstColumn(ai, ['invoice_year', 'year']);
   const invoiceNumber = firstColumn(ai, ['invoice_number', 'number', 'reference']);
+  const statusColumn = firstColumn(ai, ['status', 'state']);
+  const sentDateColumn = firstColumn(ai, ['sent_date', 'sent_at', 'issue_date', 'created_at']);
+  const paymentDateColumn = firstColumn(ai, ['payment_date', 'paid_at']);
+  const paidColumn = firstColumn(ai, ['paid', 'is_paid']);
 
   const referenceExpr =
     invoiceYear && invoiceNumber
       ? `CONCAT(COALESCE(ai.${invoiceYear}::text, '—'), '-', COALESCE(ai.${invoiceNumber}::text, ai.id::text))`
       : textExpr('ai', ai, ['invoice_number', 'number', 'reference', 'id']);
 
-  const paidColumn = firstColumn(ai, ['paid', 'is_paid']);
-  const statusColumn = firstColumn(ai, ['status', 'state']);
-
   const statusExpr = paidColumn
-    ? `CASE WHEN ai.${paidColumn} IS TRUE THEN 'Payée' ELSE ${
-        statusColumn ? `COALESCE(NULLIF(ai.${statusColumn}::text, ''), 'Ouverte')` : `'Ouverte'`
-      } END`
-    : textExpr('ai', ai, ['status', 'state'], 'Ouverte');
+    ? `CASE
+         WHEN ai.${paidColumn} IS TRUE THEN 'Payée'
+         ELSE ${statusColumn ? `COALESCE(NULLIF(ai.${statusColumn}::text, ''), 'En attente')` : `'En attente'`}
+       END`
+    : textExpr('ai', ai, ['status', 'state'], 'En attente');
 
   const directClientExpr = textExpr('ai', ai, ['account_name', 'customer_name', 'client', 'client_name']);
   const clientExpr = directClientExpr !== `'—'`
@@ -236,6 +263,11 @@ async function invoicesView() {
   return query(`
     SELECT
       ${entityMeta('ai', ai, tableName)},
+      ${statusColumn ? `'${statusColumn}'` : 'NULL'} AS _status_column,
+      ${sentDateColumn ? `'${sentDateColumn}'` : 'NULL'} AS _date_envoi_column,
+      ${paymentDateColumn ? `'${paymentDateColumn}'` : 'NULL'} AS _date_paiement_column,
+      ${paidColumn ? `'${paidColumn}'` : 'NULL'} AS _paid_column,
+
       ${referenceExpr} AS reference,
       ${clientExpr} AS client,
       ${moneyExpr('ai', ai, ['amount', 'total_ttc', 'total', 'total_amount'])} AS montant,
@@ -308,7 +340,7 @@ async function getAllowedTabs(user) {
       'CONTACTS',
       'OPPORTUNITÉS',
       'SOUS-TRAITANT',
-      // 'PISTES',
+      'PISTES',
       'FACTURES',
       'SYNTHÈSE',
       'MEILLEURS CLIENTS',

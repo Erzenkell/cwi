@@ -28,7 +28,7 @@ type AdminTab =
   | 'FACTURES'
   | 'SYNTHÈSE'
   | 'MEILLEURS CLIENTS'
-  | 'GROUPES'
+  // | 'GROUPES'
   | 'ADMINISTRATION'
   | 'LOGS';
 type Tab = EmployeeTab | AdminTab;
@@ -86,7 +86,7 @@ const adminTabs: { label: AdminTab; icon: ComponentType<any> }[] = [
   { label: 'FACTURES', icon: FileText },
   { label: 'SYNTHÈSE', icon: ChartNoAxesCombined },
   { label: 'MEILLEURS CLIENTS', icon: TrendingUp },
-  { label: 'GROUPES', icon: Layers3 },
+  // { label: 'GROUPES', icon: Layers3 },
   { label: 'ADMINISTRATION', icon: UserCog },
   { label: 'LOGS', icon: History },
 ];
@@ -100,7 +100,7 @@ const tabToKey: Record<Tab, string> = {
   FACTURES: 'invoices',
   SYNTHÈSE: 'summary',
   'MEILLEURS CLIENTS': 'topClients',
-  GROUPES: 'groups',
+  // GROUPES: 'groups',
   ADMINISTRATION: 'administration',
   LOGS: 'logs',
 };
@@ -114,8 +114,9 @@ const tabToEntity: Record<Tab, string | null> = {
   FACTURES: 'abstract_invoices',
   SYNTHÈSE: null,
   'MEILLEURS CLIENTS': null,
-  GROUPES: 'groups',
+  // GROUPES: 'groups',
   ADMINISTRATION: null,
+  LOGS: 'logs',
 };
 
 const tabMeta: Record<Tab, { title: string; subtitle: string; columns: string[] }> = {
@@ -159,11 +160,11 @@ const tabMeta: Record<Tab, { title: string; subtitle: string; columns: string[] 
     subtitle: 'Classement calculé depuis les montants des factures.',
     columns: ['Nom', 'CA facturé', 'Factures', 'Santé'],
   },
-  GROUPES: {
-    title: 'Groupes',
-    subtitle: 'Segmentation interne pour pilotage et permissions.',
-    columns: ['Nom', 'Membres', 'Créé le'],
-  },
+  // GROUPES: {
+  //   title: 'Groupes',
+  //   subtitle: 'Segmentation interne pour pilotage et permissions.',
+  //   columns: ['Nom', 'Membres', 'Créé le'],
+  // },
   ADMINISTRATION: {
     title: 'Administration',
     subtitle: 'Gestion des utilisateurs de l’application CRM.',
@@ -175,6 +176,242 @@ const tabMeta: Record<Tab, { title: string; subtitle: string; columns: string[] 
     columns: [],
   },
 };
+
+const TECHNICAL_FIELDS = new Set([
+  'id',
+  'created_at',
+  'updated_at',
+  'deleted_at',
+  'old_uniqueid',
+  'lock_version',
+  'password',
+  'password_hash',
+  'encrypted_password',
+  'reset_password_token',
+  'remember_token',
+  'confirmation_token',
+]);
+
+const CREATE_HIDDEN_FIELDS = new Set([
+  'id',
+  'user_id',
+  'created_at',
+  'updated_at',
+  'deleted_at',
+  'old_uniqueid',
+  'status',
+  'state',
+  'access',
+  'currency',
+  'invoice_year',
+  'lock_version',
+]);
+
+const CREATE_VISIBLE_FIELDS: Record<string, string[]> = {
+  leads: [
+    'first_name',
+    'last_name',
+    'company',
+    'title',
+    'source',
+    'email',
+    'alt_email',
+    'phone',
+    'mobile',
+    'linkedin',
+    'website',
+    'description',
+    'notes',
+    'assigned_to',
+  ],
+
+  contacts: [
+    'first_name',
+    'last_name',
+    'company',
+    'title',
+    'department',
+    'email',
+    'alt_email',
+    'phone',
+    'mobile',
+    'linkedin',
+    'address',
+    'city',
+    'country',
+    'assigned_to',
+  ],
+
+  accounts: [
+    'name',
+    'email',
+    'phone',
+    'toll_free_phone',
+    'website',
+    'address',
+    'city',
+    'country',
+    'rating',
+    'assigned_to',
+  ],
+
+  opportunities: [
+    'name',
+    'subject',
+    'amount',
+    'budget',
+    'stage',
+    'probability',
+    'source_language',
+    'target_language',
+    'task_type',
+    'service_type',
+    'description',
+    'notes',
+    'assigned_to',
+  ],
+
+  suppliers: [
+    'first_name',
+    'last_name',
+    'name',
+    'company',
+    'email',
+    'phone',
+    'mobile',
+    'specialty',
+    'speciality',
+    'skills',
+    'address',
+    'city',
+    'country',
+  ],
+
+  subcontractors: [
+    'first_name',
+    'last_name',
+    'name',
+    'company',
+    'email',
+    'phone',
+    'mobile',
+    'specialty',
+    'speciality',
+    'skills',
+    'address',
+    'city',
+    'country',
+  ],
+
+  abstract_invoices: [
+    'account_id',
+    'invoice_number',
+    'amount',
+    'vat',
+    'due_date',
+    'sent_date',
+    'payment_date',
+    'paid',
+    'description',
+    'notes',
+  ],
+
+  invoices: [
+    'customer_name',
+    'customer_siret',
+    'customer_address',
+    'issue_date',
+    'due_date',
+    'total_ttc',
+    'notes',
+  ],
+};
+
+function shouldShowColumnInModal(payload: RecordModalPayload, columnName: string) {
+  if (isReadOnlyColumn(columnName)) return false;
+
+  if (payload.mode !== 'create') {
+    return true;
+  }
+
+  if (CREATE_HIDDEN_FIELDS.has(columnName)) {
+    return false;
+  }
+
+  const allowedFields = CREATE_VISIBLE_FIELDS[payload.table];
+
+  if (!allowedFields) {
+    return !columnName.endsWith('_id');
+  }
+
+  return allowedFields.includes(columnName);
+}
+
+function buildCreateInitialRecord(
+  table: string,
+  columns: DbColumn[],
+  user: AuthResponse['user']
+) {
+  const initialRecord: Record<string, any> = {};
+  const columnNames = new Set(columns.map((column) => column.column_name));
+  const today = new Date().toISOString().slice(0, 10);
+
+  if (columnNames.has('user_id')) {
+    initialRecord.user_id = user.id;
+  }
+
+  if (columnNames.has('assigned_to')) {
+    initialRecord.assigned_to = user.id;
+  }
+
+  if (columnNames.has('status')) {
+    initialRecord.status = 'En attente';
+  }
+
+  if (columnNames.has('state')) {
+    initialRecord.state = 'En attente';
+  }
+
+  if (columnNames.has('access')) {
+    initialRecord.access = 'Public';
+  }
+
+  if (columnNames.has('currency')) {
+    initialRecord.currency = 'EUR';
+  }
+
+  if (columnNames.has('invoice_year')) {
+    initialRecord.invoice_year = new Date().getFullYear();
+  }
+
+  if (columnNames.has('issue_date')) {
+    initialRecord.issue_date = today;
+  }
+
+  if (columnNames.has('date')) {
+    initialRecord.date = today;
+  }
+
+  const visibleFields = CREATE_VISIBLE_FIELDS[table];
+
+  for (const column of columns) {
+    const name = column.column_name;
+
+    if (!shouldShowColumnInModal({ mode: 'create', table, columns, record: initialRecord }, name)) {
+      continue;
+    }
+
+    if (visibleFields && !visibleFields.includes(name)) {
+      continue;
+    }
+
+    if (!(name in initialRecord)) {
+      initialRecord[name] = '';
+    }
+  }
+
+  return initialRecord;
+}
 
 async function api<T>(
   path: string,
@@ -304,6 +541,35 @@ type QuoteForm = {
   notes: string;
   lines: QuoteLine[];
 };
+
+type InvoiceRow = EntityRow & {
+  _id: number;
+  _entity: string;
+  _status_column?: string | null;
+  _date_envoi_column?: string | null;
+  _date_paiement_column?: string | null;
+  _paid_column?: string | null;
+  reference: string;
+  client: string;
+  montant: string;
+  tva: string;
+  statut: string;
+  date_envoi: string | null;
+  date_paiement: string | null;
+};
+
+const INVOICE_STATUS_OPTIONS = [
+  'En attente',
+  'Payée',
+  'Annulée',
+  'Brouillon',
+  'Relancée',
+];
+
+function formatDateForInput(value: string | number | null | undefined) {
+  if (!value || value === '—') return '';
+  return String(value).slice(0, 10);
+}
 
 function buildDefaultQuoteForm(): QuoteForm {
   const today = new Date().toISOString().slice(0, 10);
@@ -605,15 +871,17 @@ function Panel({
   activeTab,
   payload,
   onRowClick,
+  authToken,
+  onRefresh,
+  onGenerateInvoice,
 }: {
   activeTab: Tab;
   payload: EntityPayload & { summaryCards?: DashboardStats };
   onRowClick: (row: EntityRow) => void;
+  authToken: string;
+  onRefresh: () => Promise<void>;
+  onGenerateInvoice: (row: InvoiceRow) => void;
 }) {
-  if (activeTab === 'ADMINISTRATION') {
-    return null;
-  }
-
   if (activeTab === 'SYNTHÈSE') {
     return (
       <div className="space-y-6">
@@ -639,6 +907,17 @@ function Panel({
     );
   }
 
+  if (activeTab === 'FACTURES') {
+    return (
+      <InvoicesQuickTable
+        rows={(payload.invoices || []) as InvoiceRow[]}
+        token={authToken}
+        onSaved={onRefresh}
+        onGenerateInvoice={onGenerateInvoice}
+      />
+    );
+  }
+
   const rows = payload[tabToKey[activeTab]] || [];
 
   return (
@@ -649,7 +928,6 @@ function Panel({
     />
   );
 }
-
 
 
 function QuoteModal({
@@ -1165,6 +1443,517 @@ function LogsPanel({
   );
 }
 
+function InvoicesQuickTable({
+  rows,
+  token,
+  onSaved,
+  onGenerateInvoice,
+}: {
+  rows: InvoiceRow[];
+  token: string;
+  onSaved: () => Promise<void> | void;
+  onGenerateInvoice: (row: InvoiceRow) => void;
+}) {
+  const [savingRowId, setSavingRowId] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function quickUpdateInvoice(
+    row: InvoiceRow,
+    changes: Partial<{
+      statut: string;
+      date_envoi: string | null;
+      date_paiement: string | null;
+    }>
+  ) {
+    const payload: Record<string, any> = {};
+
+    if (changes.statut !== undefined && row._status_column) {
+      payload[row._status_column] = changes.statut;
+    }
+
+    if (changes.date_envoi !== undefined && row._date_envoi_column) {
+      payload[row._date_envoi_column] = changes.date_envoi || null;
+    }
+
+    if (changes.date_paiement !== undefined && row._date_paiement_column) {
+      payload[row._date_paiement_column] = changes.date_paiement || null;
+
+      if (row._paid_column) {
+        payload[row._paid_column] = Boolean(changes.date_paiement);
+      }
+
+      if (row._status_column && changes.date_paiement) {
+        payload[row._status_column] = 'Payée';
+      }
+    }
+
+    if (Object.keys(payload).length === 0) return;
+
+    setSavingRowId(row._id);
+    setError(null);
+
+    try {
+      await api(
+        `/records/${row._entity}/${row._id}`,
+        {
+          method: 'PATCH',
+          body: JSON.stringify(payload),
+        },
+        token
+      );
+
+      await onSaved();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Mise à jour impossible');
+    } finally {
+      setSavingRowId(null);
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      {error ? (
+        <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+          {error}
+        </div>
+      ) : null}
+
+      <div className="overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-sm">
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-left text-sm">
+            <thead className="bg-slate-50 text-slate-500">
+              <tr>
+                <th className="px-4 py-3 font-medium">Référence</th>
+                <th className="px-4 py-3 font-medium">Client</th>
+                <th className="px-4 py-3 font-medium">Montant</th>
+                <th className="px-4 py-3 font-medium">TVA</th>
+                <th className="px-4 py-3 font-medium">Statut</th>
+                <th className="px-4 py-3 font-medium">Date envoi</th>
+                <th className="px-4 py-3 font-medium">Date paiement</th>
+                <th className="px-4 py-3 font-medium">Actions</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              {rows.length === 0 ? (
+                <tr>
+                  <td className="px-4 py-8 text-slate-400" colSpan={7}>
+                    Aucune facture.
+                  </td>
+                </tr>
+              ) : (
+                rows.map((row) => {
+                  const saving = savingRowId === row._id;
+
+                  return (
+                    <tr key={row._id} className="border-t border-slate-100 text-slate-700">
+                      <td className="px-4 py-3">{formatValue(row.reference)}</td>
+                      <td className="px-4 py-3">{formatValue(row.client)}</td>
+                      <td className="px-4 py-3">{formatValue(row.montant)}</td>
+                      <td className="px-4 py-3">{formatValue(row.tva)}</td>
+
+                      <td className="px-4 py-3">
+                        <select
+                          value={row.statut || 'En attente'}
+                          disabled={saving}
+                          onChange={(e) =>
+                            quickUpdateInvoice(row, { statut: e.target.value })
+                          }
+                          className="w-full min-w-[150px] rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-indigo-400"
+                        >
+                          {INVOICE_STATUS_OPTIONS.map((status) => (
+                            <option key={status} value={status}>
+                              {status}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+
+                      <td className="px-4 py-3">
+                        <input
+                          type="date"
+                          defaultValue={formatDateForInput(row.date_envoi)}
+                          disabled={saving}
+                          onChange={(e) =>
+                            quickUpdateInvoice(row, {
+                              date_envoi: e.target.value || null,
+                            })
+                          }
+                          className="w-full min-w-[150px] rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-400"
+                        />
+                      </td>
+
+                      <td className="px-4 py-3">
+                        <input
+                          type="date"
+                          defaultValue={formatDateForInput(row.date_paiement)}
+                          disabled={saving}
+                          onChange={(e) =>
+                            quickUpdateInvoice(row, {
+                              date_paiement: e.target.value || null,
+                            })
+                          }
+                          className="w-full min-w-[150px] rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-400"
+                        />
+                      </td>
+
+                      <td className="px-4 py-3">
+                        <button
+                          onClick={() => onGenerateInvoice(row)}
+                          className="rounded-xl bg-[#8B0E3F] px-3 py-2 text-xs font-medium text-white hover:bg-[#6f0b32]"
+                        >
+                          Générer facture
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+type InvoiceGenerationLine = {
+  service_date: string;
+  purchase_order: string;
+  prestation: string;
+  document_name: string;
+  requester_name: string;
+  language_pair: string;
+  price_ht: number;
+};
+
+function InvoiceGenerationModal({
+  invoice,
+  token,
+  onClose,
+  onGenerated,
+}: {
+  invoice: InvoiceRow;
+  token: string;
+  onClose: () => void;
+  onGenerated: () => Promise<void> | void;
+}) {
+  const [saving, setSaving] = useState(false);
+  const [einvoiceSaving, setEinvoiceSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const [form, setForm] = useState({
+    invoice_number: invoice.reference?.startsWith('FA')
+      ? invoice.reference
+      : `FA ${invoice.reference}`,
+    invoice_date: formatDateForInput(invoice.date_envoi) || new Date().toISOString().slice(0, 10),
+    client_name: invoice.client || '',
+    client_address: '',
+    vat_rate: Number(String(invoice.tva || '20').replace('%', '')) || 20,
+    greeting: 'Madame,',
+  });
+
+  const [lines, setLines] = useState<InvoiceGenerationLine[]>([
+    {
+      service_date: '',
+      purchase_order: '',
+      prestation: 'Traduction',
+      document_name: '',
+      requester_name: '',
+      language_pair: '',
+      price_ht: Number(String(invoice.montant || '0').replace(/[^\d.,-]/g, '').replace(',', '.')) || 0,
+    },
+  ]);
+
+  function updateLine(index: number, patch: Partial<InvoiceGenerationLine>) {
+    setLines((current) =>
+      current.map((line, i) => (i === index ? { ...line, ...patch } : line))
+    );
+  }
+
+  function addLine() {
+    setLines((current) => [
+      ...current,
+      {
+        service_date: '',
+        purchase_order: '',
+        prestation: 'Traduction',
+        document_name: '',
+        requester_name: '',
+        language_pair: '',
+        price_ht: 0,
+      },
+    ]);
+  }
+
+  function removeLine(index: number) {
+    setLines((current) => current.filter((_, i) => i !== index));
+  }
+
+  async function generatePdf() {
+    setSaving(true);
+    setError(null);
+
+    try {
+      const response = await fetch(`${API_URL}/invoice-documents/${invoice._id}/generate-pdf`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          ...form,
+          lines,
+        }),
+      });
+
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err.message || 'Génération impossible');
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${form.invoice_number.replaceAll(' ', '_')}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+
+      window.URL.revokeObjectURL(url);
+
+      await onGenerated();
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Génération impossible');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function sendEInvoice() {
+    setEinvoiceSaving(true);
+    setError(null);
+
+    try {
+      const response = await fetch(`${API_URL}/invoice-documents/${invoice._id}/send-einvoice`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err.message || 'Préparation e-facture impossible');
+      }
+
+      await onGenerated();
+      alert("Facture marquée comme prête pour l'envoi électronique. L'intégration réelle sera ajoutée plus tard.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Préparation e-facture impossible');
+    } finally {
+      setEinvoiceSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
+      <div className="max-h-[92vh] w-full max-w-6xl overflow-hidden rounded-[28px] bg-white shadow-2xl">
+        <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+          <div>
+            <div className="text-xs uppercase tracking-[0.2em] text-slate-400">
+              Facture
+            </div>
+            <h2 className="mt-1 text-2xl font-semibold text-slate-900">
+              Générer une facture Wordsinvest
+            </h2>
+          </div>
+
+          <button
+            onClick={onClose}
+            className="rounded-xl border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50"
+          >
+            Fermer
+          </button>
+        </div>
+
+        <div className="max-h-[70vh] overflow-y-auto p-6">
+          {error ? (
+            <div className="mb-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+              {error}
+            </div>
+          ) : null}
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <div>
+              <label className="mb-2 block text-sm font-medium text-slate-700">
+                Numéro de facture
+              </label>
+              <input
+                value={form.invoice_number}
+                onChange={(e) => setForm({ ...form, invoice_number: e.target.value })}
+                className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-indigo-400"
+              />
+            </div>
+
+            <div>
+              <label className="mb-2 block text-sm font-medium text-slate-700">
+                Date de facture
+              </label>
+              <input
+                type="date"
+                value={form.invoice_date}
+                onChange={(e) => setForm({ ...form, invoice_date: e.target.value })}
+                className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-indigo-400"
+              />
+            </div>
+
+            <div>
+              <label className="mb-2 block text-sm font-medium text-slate-700">
+                Client
+              </label>
+              <input
+                value={form.client_name}
+                onChange={(e) => setForm({ ...form, client_name: e.target.value })}
+                className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-indigo-400"
+              />
+            </div>
+
+            <div>
+              <label className="mb-2 block text-sm font-medium text-slate-700">
+                TVA %
+              </label>
+              <input
+                type="number"
+                value={form.vat_rate}
+                onChange={(e) => setForm({ ...form, vat_rate: Number(e.target.value) })}
+                className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-indigo-400"
+              />
+            </div>
+
+            <div className="md:col-span-2">
+              <label className="mb-2 block text-sm font-medium text-slate-700">
+                Adresse client
+              </label>
+              <textarea
+                value={form.client_address}
+                onChange={(e) => setForm({ ...form, client_address: e.target.value })}
+                className="min-h-24 w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-indigo-400"
+              />
+            </div>
+          </div>
+
+          <div className="mt-8 flex items-center justify-between">
+            <h3 className="text-lg font-semibold text-slate-900">
+              Prestations
+            </h3>
+
+            <button
+              type="button"
+              onClick={addLine}
+              className="rounded-2xl border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50"
+            >
+              Ajouter une ligne
+            </button>
+          </div>
+
+          <div className="mt-4 space-y-4">
+            {lines.map((line, index) => (
+              <div key={index} className="rounded-2xl border border-slate-200 p-4">
+                <div className="grid gap-3 md:grid-cols-7">
+                  <input
+                    type="date"
+                    value={line.service_date}
+                    onChange={(e) => updateLine(index, { service_date: e.target.value })}
+                    className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                    placeholder="Date prestation"
+                  />
+
+                  <input
+                    value={line.purchase_order}
+                    onChange={(e) => updateLine(index, { purchase_order: e.target.value })}
+                    className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                    placeholder="Commande"
+                  />
+
+                  <input
+                    value={line.prestation}
+                    onChange={(e) => updateLine(index, { prestation: e.target.value })}
+                    className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                    placeholder="Prestation"
+                  />
+
+                  <input
+                    value={line.document_name}
+                    onChange={(e) => updateLine(index, { document_name: e.target.value })}
+                    className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                    placeholder="Nom document"
+                  />
+
+                  <input
+                    value={line.requester_name}
+                    onChange={(e) => updateLine(index, { requester_name: e.target.value })}
+                    className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                    placeholder="Demandeur"
+                  />
+
+                  <input
+                    value={line.language_pair}
+                    onChange={(e) => updateLine(index, { language_pair: e.target.value })}
+                    className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                    placeholder="Langues"
+                  />
+
+                  <input
+                    type="number"
+                    value={line.price_ht}
+                    onChange={(e) => updateLine(index, { price_ht: Number(e.target.value) })}
+                    className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                    placeholder="Prix HT"
+                  />
+                </div>
+
+                {lines.length > 1 ? (
+                  <button
+                    type="button"
+                    onClick={() => removeLine(index)}
+                    className="mt-3 text-sm text-rose-600 hover:underline"
+                  >
+                    Supprimer cette ligne
+                  </button>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center justify-end gap-3 border-t border-slate-200 px-6 py-4">
+          <button
+            onClick={sendEInvoice}
+            disabled={einvoiceSaving}
+            className="rounded-2xl border border-[#8B0E3F] px-5 py-3 text-sm font-medium text-[#8B0E3F] hover:bg-[#8B0E3F]/5 disabled:opacity-60"
+          >
+            {einvoiceSaving ? 'Préparation...' : 'Envoyer facture électronique'}
+          </button>
+
+          <button
+            onClick={generatePdf}
+            disabled={saving}
+            className="rounded-2xl bg-[#8B0E3F] px-5 py-3 text-sm font-medium text-white hover:bg-[#6f0b32] disabled:opacity-60"
+          >
+            {saving ? 'Génération...' : 'Générer PDF'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function AdministrationPanel({
   auth,
   onTokenRefresh,
@@ -1532,7 +2321,9 @@ function EditRecordModal({
           ) : null}
 
           <div className="grid gap-4 md:grid-cols-2">
-            {payload.columns.map((column) => {
+            {payload.columns
+                .filter((column) => shouldShowColumnInModal(payload, column.column_name))
+                .map((column) => {
               const name = column.column_name;
               const readOnly = isReadOnlyColumn(name);
               const value = form[name];
@@ -1641,6 +2432,7 @@ export default function App() {
   const [quoteInitialValue, setQuoteInitialValue] = useState<QuoteForm>(() => buildDefaultQuoteForm());
   const [quoteGenerating, setQuoteGenerating] = useState(false);
   const [quoteError, setQuoteError] = useState<string | null>(null);
+  const [invoiceToGenerate, setInvoiceToGenerate] = useState<InvoiceRow | null>(null);
 
   async function openRecord(row: EntityRow) {
     if (!auth?.token) return;
@@ -1693,12 +2485,11 @@ export default function App() {
         setAuth
       );
 
-      const initialRecord: Record<string, any> = {};
-
-      for (const column of data.columns) {
-        if (isReadOnlyColumn(column.column_name)) continue;
-        initialRecord[column.column_name] = '';
-      }
+      const initialRecord = buildCreateInitialRecord(
+        data.table,
+        data.columns,
+        auth.user
+      );
 
       setModalPayload({
         mode: 'create',
@@ -2038,12 +2829,12 @@ export default function App() {
             </div>
           </header>
 
-          <div className="mt-6 grid gap-4 md:grid-cols-3 xl:grid-cols-4">
+          {/* <div className="mt-6 grid gap-4 md:grid-cols-3 xl:grid-cols-4">
             <KpiCard label="Modules actifs" value={String(tabs.length)} icon={<Layers3 className="size-4" />} />
             <KpiCard label="Rôle" value={auth.user.role === 'admin' ? 'Admin' : 'Salarié'} icon={<Shield className="size-4" />} />
             <KpiCard label="Backend" value={dataLoading ? 'Sync...' : 'Connecté'} icon={<BriefcaseBusiness className="size-4" />} />
             <KpiCard label="Base" value="PostgreSQL" icon={<Building2 className="size-4" />} />
-          </div>
+          </div> */}
 
           {error ? (
             <div className="mt-6 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
@@ -2063,7 +2854,14 @@ export default function App() {
                 onTokenRefresh={setAuth}
               />
             ) : (
-              <Panel activeTab={activeTab} payload={payload} onRowClick={openRecord} />
+              <Panel
+                activeTab={activeTab}
+                payload={payload}
+                onRowClick={openRecord}
+                authToken={auth.token}
+                onRefresh={refreshData}
+                onGenerateInvoice={setInvoiceToGenerate}
+              />
             )}
           </div>
         </section>
@@ -2101,6 +2899,15 @@ export default function App() {
             setModalError(null);
           }}
           onSave={saveRecord}
+        />
+      ) : null}
+
+      {invoiceToGenerate ? (
+        <InvoiceGenerationModal
+          invoice={invoiceToGenerate}
+          token={auth.token}
+          onClose={() => setInvoiceToGenerate(null)}
+          onGenerated={refreshData}
         />
       ) : null}
     </main>

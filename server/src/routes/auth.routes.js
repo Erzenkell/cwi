@@ -9,6 +9,26 @@ const router = Router();
 const ACCESS_TOKEN_TTL = '15m';
 const REFRESH_TOKEN_DAYS = 30;
 
+const ALL_TABS = [
+  'COMPTES',
+  'CONTACTS',
+  'OPPORTUNITÉS',
+  'SOUS-TRAITANT',
+  'PISTES',
+  'FACTURES',
+  'SYNTHÈSE',
+  'MEILLEURS CLIENTS',
+  'ADMINISTRATION',
+  'LOGS',
+];
+
+const DEFAULT_EMPLOYEE_TABS = [
+  'COMPTES',
+  'CONTACTS',
+  'OPPORTUNITÉS',
+  'SOUS-TRAITANT',
+];
+
 function signAccessToken(user) {
   return jwt.sign(
     {
@@ -55,6 +75,31 @@ function clearRefreshCookie(res) {
   });
 }
 
+async function getUserTabPermissions(userId, role) {
+  const result = await query(
+    `
+    SELECT tab_key
+    FROM crm_app_user_tab_permissions
+    WHERE user_id = $1
+      AND can_access = true
+    ORDER BY tab_key ASC
+    `,
+    [userId]
+  );
+
+  const permissions = result.rows.map((row) => row.tab_key);
+
+  if (permissions.length > 0) {
+    return permissions;
+  }
+
+  if (role === 'admin') {
+    return ALL_TABS;
+  }
+
+  return DEFAULT_EMPLOYEE_TABS;
+}
+
 async function createSession(req, res, user) {
   const refreshToken = createRefreshToken();
   const refreshTokenHash = hashToken(refreshToken);
@@ -83,200 +128,191 @@ async function createSession(req, res, user) {
 }
 
 router.post('/login', async (req, res) => {
-  const { email, password } = req.body;
+  try {
+    const { email, password } = req.body;
 
-  const result = await query(
-    `
-    SELECT id, email, password_hash, role, full_name
-    FROM crm_app_users
-    WHERE email = $1
-    `,
-    [email]
-  );
+    const result = await query(
+      `
+      SELECT id, email, password_hash, role, full_name
+      FROM crm_app_users
+      WHERE LOWER(email) = LOWER($1)
+      LIMIT 1
+      `,
+      [email]
+    );
 
-  const user = result.rows[0];
+    const user = result.rows[0];
 
-  if (!user) {
-    return res.status(401).json({ message: 'Invalid credentials' });
+    if (!user) {
+      return res.status(401).json({ message: 'Invalid credentials' });
+    }
+
+    const isValid = await bcrypt.compare(password, user.password_hash);
+
+    if (!isValid) {
+      return res.status(401).json({ message: 'Invalid credentials' });
+    }
+
+    await createSession(req, res, user);
+
+    const permissions = await getUserTabPermissions(user.id, user.role);
+    const token = signAccessToken(user);
+
+    res.json({
+      token,
+      user: {
+        id: user.id,
+        email: user.email,
+        role: user.role,
+        fullName: user.full_name,
+        permissions,
+      },
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Erreur connexion' });
   }
-
-  const isValid = await bcrypt.compare(password, user.password_hash);
-
-  if (!isValid) {
-    return res.status(401).json({ message: 'Invalid credentials' });
-  }
-
-  await createSession(req, res, user);
-
-  const accessToken = signAccessToken(user);
-
-  const permissions = await getUserTabPermissions(user.id, user.role);
-
-  res.json({
-    token,
-    user: {
-      id: user.id,
-      email: user.email,
-      role: user.role,
-      fullName: user.full_name,
-      permissions,
-    },
-  });
 });
 
 router.post('/refresh', async (req, res) => {
-  const refreshToken = req.cookies?.crm_refresh_token;
+  try {
+    const refreshToken = req.cookies?.crm_refresh_token;
 
-  if (!refreshToken) {
-    return res.status(401).json({ message: 'No session' });
-  }
+    if (!refreshToken) {
+      return res.status(401).json({ message: 'No session' });
+    }
 
-  const refreshTokenHash = hashToken(refreshToken);
-
-  const result = await query(
-    `
-    SELECT
-      s.id AS session_id,
-      s.expires_at,
-      s.revoked_at,
-      u.id AS user_id,
-      u.email,
-      u.role,
-      u.full_name
-    FROM crm_app_sessions s
-    JOIN crm_app_users u ON u.id = s.user_id
-    WHERE s.refresh_token_hash = $1
-    LIMIT 1
-    `,
-    [refreshTokenHash]
-  );
-
-  const session = result.rows[0];
-
-  if (!session) {
-    clearRefreshCookie(res);
-    return res.status(401).json({ message: 'Invalid session' });
-  }
-
-  if (session.revoked_at) {
-    clearRefreshCookie(res);
-    return res.status(401).json({ message: 'Session revoked' });
-  }
-
-  if (new Date(session.expires_at) < new Date()) {
-    clearRefreshCookie(res);
-    return res.status(401).json({ message: 'Session expired' });
-  }
-
-  const user = {
-    id: session.user_id,
-    email: session.email,
-    role: session.role,
-    full_name: session.full_name,
-  };
-
-  const permissions = await getUserTabPermissions(user.id, user.role);
-
-  const accessToken = signAccessToken(user);
-
-  res.json({
-    token: accessToken,
-    user: {
-      id: user.id,
-      email: user.email,
-      role: user.role,
-      fullName: user.full_name,
-      permissions,
-    },
-  });
-});
-
-router.post('/logout', async (req, res) => {
-  const refreshToken = req.cookies?.crm_refresh_token;
-
-  if (refreshToken) {
     const refreshTokenHash = hashToken(refreshToken);
 
-    await query(
+    const result = await query(
       `
-      UPDATE crm_app_sessions
-      SET revoked_at = NOW()
-      WHERE refresh_token_hash = $1
+      SELECT
+        s.id AS session_id,
+        s.expires_at,
+        s.revoked_at,
+        u.id AS user_id,
+        u.email,
+        u.role,
+        u.full_name
+      FROM crm_app_sessions s
+      JOIN crm_app_users u ON u.id = s.user_id
+      WHERE s.refresh_token_hash = $1
+      LIMIT 1
       `,
       [refreshTokenHash]
     );
+
+    const session = result.rows[0];
+
+    if (!session) {
+      clearRefreshCookie(res);
+      return res.status(401).json({ message: 'Invalid session' });
+    }
+
+    if (session.revoked_at) {
+      clearRefreshCookie(res);
+      return res.status(401).json({ message: 'Session revoked' });
+    }
+
+    if (new Date(session.expires_at) < new Date()) {
+      clearRefreshCookie(res);
+      return res.status(401).json({ message: 'Session expired' });
+    }
+
+    const user = {
+      id: session.user_id,
+      email: session.email,
+      role: session.role,
+      full_name: session.full_name,
+    };
+
+    const permissions = await getUserTabPermissions(user.id, user.role);
+    const token = signAccessToken(user);
+
+    res.json({
+      token,
+      user: {
+        id: user.id,
+        email: user.email,
+        role: user.role,
+        fullName: user.full_name,
+        permissions,
+      },
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Erreur restauration session' });
   }
+});
 
-  clearRefreshCookie(res);
+router.post('/logout', async (req, res) => {
+  try {
+    const refreshToken = req.cookies?.crm_refresh_token;
 
-  res.json({ success: true });
+    if (refreshToken) {
+      const refreshTokenHash = hashToken(refreshToken);
+
+      await query(
+        `
+        UPDATE crm_app_sessions
+        SET revoked_at = NOW()
+        WHERE refresh_token_hash = $1
+        `,
+        [refreshTokenHash]
+      );
+    }
+
+    clearRefreshCookie(res);
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Erreur déconnexion' });
+  }
 });
 
 router.post('/logout-all', async (req, res) => {
-  const refreshToken = req.cookies?.crm_refresh_token;
+  try {
+    const refreshToken = req.cookies?.crm_refresh_token;
 
-  if (!refreshToken) {
-    clearRefreshCookie(res);
-    return res.json({ success: true });
-  }
+    if (!refreshToken) {
+      clearRefreshCookie(res);
+      return res.json({ success: true });
+    }
 
-  const refreshTokenHash = hashToken(refreshToken);
+    const refreshTokenHash = hashToken(refreshToken);
 
-  const sessionResult = await query(
-    `
-    SELECT user_id
-    FROM crm_app_sessions
-    WHERE refresh_token_hash = $1
-    `,
-    [refreshTokenHash]
-  );
-
-  const session = sessionResult.rows[0];
-
-  if (session) {
-    await query(
+    const sessionResult = await query(
       `
-      UPDATE crm_app_sessions
-      SET revoked_at = NOW()
-      WHERE user_id = $1
-        AND revoked_at IS NULL
+      SELECT user_id
+      FROM crm_app_sessions
+      WHERE refresh_token_hash = $1
+      LIMIT 1
       `,
-      [session.user_id]
+      [refreshTokenHash]
     );
+
+    const session = sessionResult.rows[0];
+
+    if (session) {
+      await query(
+        `
+        UPDATE crm_app_sessions
+        SET revoked_at = NOW()
+        WHERE user_id = $1
+          AND revoked_at IS NULL
+        `,
+        [session.user_id]
+      );
+    }
+
+    clearRefreshCookie(res);
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Erreur déconnexion globale' });
   }
-
-  clearRefreshCookie(res);
-
-  res.json({ success: true });
 });
 
 export default router;
-
-async function getUserTabPermissions(userId, role) {
-  if (role === 'admin') {
-    return [
-      'COMPTES',
-      'CONTACTS',
-      'OPPORTUNITÉS',
-      'SOUS-TRAITANT',
-      // 'PISTES',
-      'FACTURES',
-      'SYNTHÈSE',
-      'MEILLEURS CLIENTS',
-      'ADMINISTRATION',
-    ];
-  }
-
-  const result = await query(
-    `
-    SELECT tab_key
-    FROM crm_app_user_tab_permissions
-    WHERE user_id = $1
-      AND can_access = true
-    ORDER BY tab_key ASC
-    `,
-    [userId]
-  );
-
-  return result.rows.map((row) => row.tab_key);
-}

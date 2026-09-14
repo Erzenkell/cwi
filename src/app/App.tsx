@@ -77,6 +77,11 @@ type OpportunityRow = EntityRow & {
   prestation: string;
 };
 
+type UserOption = {
+  id: number;
+  label: string;
+};
+
 async function fetchAuditLogs(
   token: string,
   onTokenRefresh?: (data: AuthResponse) => void
@@ -2316,20 +2321,48 @@ function EditRecordModal({
   payload,
   saving,
   error,
+  token,
   onClose,
   onSave,
 }: {
   payload: RecordModalPayload;
   saving: boolean;
   error: string | null;
+  token: string;
   onClose: () => void;
   onSave: (values: Record<string, any>) => void;
 }) {
   const [form, setForm] = useState<Record<string, any>>(payload.record);
+  const [userOptions, setUserOptions] = useState<UserOption[]>([]);
 
   useEffect(() => {
     setForm(payload.record);
   }, [payload.record]);
+
+  useEffect(() => {
+    const hasAssignedTo = payload.columns.some(
+      (column) => column.column_name === 'assigned_to'
+    );
+
+    if (!hasAssignedTo) return;
+
+    fetch(`${API_URL}/records/options/users`, {
+      credentials: 'include',
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    })
+      .then((res) => {
+        if (!res.ok) throw new Error('Erreur utilisateurs');
+        return res.json();
+      })
+      .then((data) => {
+        setUserOptions(data.users || []);
+      })
+      .catch(() => {
+        setUserOptions([]);
+      });
+  }, [payload.columns, token]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#2F2F2F]/60 p-4 backdrop-blur-sm">
@@ -2363,11 +2396,44 @@ function EditRecordModal({
 
           <div className="grid gap-4 md:grid-cols-2">
             {payload.columns
-                .filter((column) => shouldShowColumnInModal(payload, column.column_name))
-                .map((column) => {
-              const name = column.column_name;
-              const readOnly = isReadOnlyColumn(name);
-              const value = form[name];
+              .filter((column) => shouldShowColumnInModal(payload, column.column_name))
+              .map((column) => {
+                const name = column.column_name;
+                const readOnly = isReadOnlyColumn(name);
+                const value = form[name];
+
+                if (name === 'assigned_to') {
+                  return (
+                    <div key={name}>
+                      <label className="mb-2 block text-sm font-medium text-slate-700">
+                        Assigné à
+                        <span className="ml-2 text-xs font-normal text-slate-400">
+                          utilisateur CRM
+                        </span>
+                      </label>
+
+                      <select
+                        value={value === null || value === undefined ? '' : String(value)}
+                        disabled={readOnly}
+                        onChange={(e) =>
+                          setForm({
+                            ...form,
+                            [name]: e.target.value === '' ? null : Number(e.target.value),
+                          })
+                        }
+                        className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-[#8B0E3F] disabled:bg-slate-100 disabled:text-slate-400"
+                      >
+                        <option value="">Non assigné</option>
+
+                        {userOptions.map((user) => (
+                          <option key={user.id} value={user.id}>
+                            {user.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  );
+                }
 
               if (column.data_type === 'boolean') {
                 return (
@@ -3065,6 +3131,7 @@ export default function App() {
           payload={modalPayload}
           saving={modalSaving}
           error={modalError}
+          token={auth.token}
           onClose={() => {
             setModalPayload(null);
             setModalError(null);

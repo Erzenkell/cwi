@@ -4,6 +4,7 @@ import { query } from '../db.js';
 import crypto from 'crypto';
 
 import { createAuditLog } from '../audit.js';
+import {hasTable, hasColumn} from '../schema.js';
 
 const router = Router();
 router.use(authenticate);
@@ -27,6 +28,26 @@ function generateOldUniqueId() {
 
 function isEmptyCreateValue(value) {
   return value === undefined || value === null || value === '';
+}
+
+function toColumnSet(columns) {
+  if (columns instanceof Set) {
+    return columns;
+  }
+
+  if (Array.isArray(columns)) {
+    return new Set(
+      columns.map((column) =>
+        typeof column === 'string' ? column : column.column_name
+      )
+    );
+  }
+
+  return new Set();
+}
+
+function hasDbColumn(columns, columnName) {
+  return toColumnSet(columns).has(columnName);
 }
 
 async function resolveDefaultUserId(req) {
@@ -130,6 +151,56 @@ function normalizeValue(value) {
   return value;
 }
 
+router.get('/options/users', async (_req, res) => {
+  try {
+    const tableExists = await hasTable('users');
+
+    if (!tableExists) {
+      return res.json({ users: [] });
+    }
+
+    const u = await getColumns('users');
+
+    const firstNameExpr = hasDbColumn(u, 'first_name')
+      ? "COALESCE(u.first_name::text, '')"
+      : "''";
+
+    const lastNameExpr = hasDbColumn(u, 'last_name')
+      ? "COALESCE(u.last_name::text, '')"
+      : "''";
+
+    const emailExpr = hasDbColumn(u, 'email')
+      ? "NULLIF(u.email::text, '')"
+      : 'NULL';
+
+    const nameExpr = hasDbColumn(u, 'name')
+      ? "NULLIF(u.name::text, '')"
+      : 'NULL';
+
+    const deletedFilter = hasDbColumn(u, 'deleted_at')
+      ? 'WHERE u.deleted_at IS NULL'
+      : '';
+
+    const result = await query(`
+      SELECT
+        u.id,
+        COALESCE(
+          NULLIF(TRIM(CONCAT(${firstNameExpr}, ' ', ${lastNameExpr})), ''),
+          ${nameExpr},
+          ${emailExpr},
+          u.id::text
+        ) AS label
+      FROM users u
+      ${deletedFilter}
+      ORDER BY label ASC
+    `);
+
+    res.json({ users: result.rows });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Erreur chargement utilisateurs CRM' });
+  }
+});
 
 router.get('/:entity/schema', async (req, res) => {
   try {

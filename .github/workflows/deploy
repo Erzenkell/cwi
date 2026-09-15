@@ -3,7 +3,7 @@ name: Deploy test CRM
 on:
   push:
     branches:
-      - test
+      - preprod
   workflow_dispatch:
 
 permissions:

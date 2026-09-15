@@ -834,12 +834,18 @@ function getDisplayRow(row: EntityRow) {
   );
 }
 
-function normalizeRows(rows: EntityRow[], columns: string[]) {
+function normalizeRows(
+  rows: EntityRow[],
+  columns: string[]
+) {
   return rows.map((row) => {
     const displayRow = getDisplayRow(row);
     const values = Object.values(displayRow);
 
-    const normalized: EntityRow = {};
+    const normalized: EntityRow = {
+      _id: row._id,
+      _entity: row._entity,
+    };
 
     columns.forEach((column, index) => {
       normalized[column] = values[index] ?? '—';
@@ -847,6 +853,157 @@ function normalizeRows(rows: EntityRow[], columns: string[]) {
 
     return normalized;
   });
+}
+
+type SortDirection = 'asc' | 'desc';
+
+type SortConfig = {
+  key: string;
+  direction: SortDirection;
+} | null;
+
+const frenchCollator = new Intl.Collator('fr', {
+  sensitivity: 'base',
+  numeric: true,
+});
+
+function getSortableValue(value: unknown) {
+  if (value === null || value === undefined || value === '—') {
+    return '';
+  }
+
+  if (typeof value === 'number') {
+    return value;
+  }
+
+  const stringValue = String(value).trim();
+
+  // Date ISO : 2026-05-29
+  if (/^\d{4}-\d{2}-\d{2}/.test(stringValue)) {
+    const timestamp = new Date(stringValue).getTime();
+
+    if (!Number.isNaN(timestamp)) {
+      return timestamp;
+    }
+  }
+
+  // Valeurs comme "2 382,00 EUR", "2382.00 EUR", "20%"
+  const numericCandidate = stringValue
+    .replace(/\s/g, '')
+    .replace(',', '.')
+    .replace(/EUR/gi, '')
+    .replace('%', '');
+
+  if (/^-?\d+(\.\d+)?$/.test(numericCandidate)) {
+    return Number(numericCandidate);
+  }
+
+  return stringValue;
+}
+
+function compareSortValues(a: unknown, b: unknown) {
+  const valueA = getSortableValue(a);
+  const valueB = getSortableValue(b);
+
+  if (valueA === '' && valueB === '') return 0;
+  if (valueA === '') return 1;
+  if (valueB === '') return -1;
+
+  if (typeof valueA === 'number' && typeof valueB === 'number') {
+    return valueA - valueB;
+  }
+
+  return frenchCollator.compare(String(valueA), String(valueB));
+}
+
+function useSortableRows<T extends Record<string, any>>(rows: T[]) {
+  const [sortConfig, setSortConfig] = useState<SortConfig>(null);
+
+  const sortedRows = useMemo(() => {
+    if (!sortConfig) {
+      return rows;
+    }
+
+    return [...rows].sort((a, b) => {
+      const result = compareSortValues(
+        a[sortConfig.key],
+        b[sortConfig.key]
+      );
+
+      return sortConfig.direction === 'asc'
+        ? result
+        : -result;
+    });
+  }, [rows, sortConfig]);
+
+  function requestSort(key: string) {
+    setSortConfig((current) => {
+      if (!current || current.key !== key) {
+        return {
+          key,
+          direction: 'asc',
+        };
+      }
+
+      return {
+        key,
+        direction:
+          current.direction === 'asc'
+            ? 'desc'
+            : 'asc',
+      };
+    });
+  }
+
+  return {
+    sortedRows,
+    sortConfig,
+    requestSort,
+  };
+}
+
+function SortableHeader({
+  label,
+  sortKey,
+  sortConfig,
+  onSort,
+  className = '',
+}: {
+  label: string;
+  sortKey: string;
+  sortConfig: SortConfig;
+  onSort: (key: string) => void;
+  className?: string;
+}) {
+  const active = sortConfig?.key === sortKey;
+
+  return (
+    <th
+      className={`px-4 py-3 font-medium ${className}`}
+    >
+      <button
+        type="button"
+        onClick={() => onSort(sortKey)}
+        className="group flex items-center gap-2 text-left transition hover:text-[#8B0E3F]"
+      >
+        <span>{label}</span>
+
+        <span
+          className={`text-[10px] transition ${
+            active
+              ? 'text-[#8B0E3F]'
+              : 'text-slate-300 group-hover:text-slate-500'
+          }`}
+        >
+          {!active
+            ? '↕'
+            : sortConfig.direction === 'asc'
+              ? '▲'
+              : '▼'}
+        </span>
+      </button>
+    </th>
+  );
 }
 
 function DataTable({
@@ -858,39 +1015,63 @@ function DataTable({
   rows: EntityRow[];
   onRowClick?: (row: EntityRow) => void;
 }) {
-  const safeRows = normalizeRows(rows, columns);
+  const normalizedRows = normalizeRows(rows, columns);
+
+  const {
+    sortedRows,
+    sortConfig,
+    requestSort,
+  } = useSortableRows(normalizedRows);
 
   return (
-    <div className="overflow-hidden rounded-[24px] border border-[#E8E3DF] bg-[#FFFDFB] shadow-sm shadow-[#2F2F2F]/5">
+    <div className="overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-sm">
       <div className="overflow-x-auto">
         <table className="min-w-full text-left text-sm">
-          <thead className="bg-[#F8F7F6] text-[#6B6764]">
+          <thead className="bg-slate-50 text-slate-500">
             <tr>
               {columns.map((column) => (
-                <th key={column} className="px-4 py-3 font-medium">
-                  {column}
-                </th>
+                <SortableHeader
+                  key={column}
+                  label={column}
+                  sortKey={column}
+                  sortConfig={sortConfig}
+                  onSort={requestSort}
+                />
               ))}
             </tr>
           </thead>
 
           <tbody>
-            {safeRows.length === 0 ? (
+            {sortedRows.length === 0 ? (
               <tr>
-                <td className="px-4 py-8 text-[#8A8582]" colSpan={columns.length}>
-                  Aucune donnée disponible.
+                <td
+                  colSpan={columns.length}
+                  className="px-4 py-8 text-center text-slate-400"
+                >
+                  Aucun résultat.
                 </td>
               </tr>
             ) : (
-              safeRows.map((displayRow, index) => (
+              sortedRows.map((row, index) => (
                 <tr
-                  key={index}
-                  onClick={() => onRowClick?.(rows[index])}
-                  className="cursor-pointer border-t border-[#EFEAE6] text-[#4E4E4E] transition hover:bg-[#8B0E3F]/[0.05]"
+                  key={row._id ?? index}
+                  onClick={() => {
+                    if (onRowClick) {
+                      onRowClick(row);
+                    }
+                  }}
+                  className={`border-t border-slate-100 text-slate-700 ${
+                    onRowClick
+                      ? 'cursor-pointer transition hover:bg-slate-50'
+                      : ''
+                  }`}
                 >
                   {columns.map((column) => (
-                    <td key={column} className="px-4 py-3">
-                      {formatValue(displayRow[column])}
+                    <td
+                      key={column}
+                      className="px-4 py-3"
+                    >
+                      {formatValue(row[column])}
                     </td>
                   ))}
                 </tr>
@@ -1504,6 +1685,12 @@ function InvoicesQuickTable({
   const [savingRowId, setSavingRowId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const {
+    sortedRows,
+    sortConfig,
+    requestSort,
+  } = useSortableRows(rows);
+
   async function quickUpdateInvoice(
     row: InvoiceRow,
     changes: Partial<{
@@ -1570,14 +1757,58 @@ function InvoicesQuickTable({
           <table className="min-w-full text-left text-sm">
             <thead className="bg-slate-50 text-slate-500">
               <tr>
-                <th className="px-4 py-3 font-medium">Référence</th>
-                <th className="px-4 py-3 font-medium">Client</th>
-                <th className="px-4 py-3 font-medium">Montant</th>
-                <th className="px-4 py-3 font-medium">TVA</th>
-                <th className="px-4 py-3 font-medium">Statut</th>
-                <th className="px-4 py-3 font-medium">Date envoi</th>
-                <th className="px-4 py-3 font-medium">Date paiement</th>
-                <th className="px-4 py-3 font-medium">Actions</th>
+                <SortableHeader
+                  label="Référence"
+                  sortKey="reference"
+                  sortConfig={sortConfig}
+                  onSort={requestSort}
+                />
+
+                <SortableHeader
+                  label="Client"
+                  sortKey="client"
+                  sortConfig={sortConfig}
+                  onSort={requestSort}
+                />
+
+                <SortableHeader
+                  label="Montant"
+                  sortKey="montant"
+                  sortConfig={sortConfig}
+                  onSort={requestSort}
+                />
+
+                <SortableHeader
+                  label="TVA"
+                  sortKey="tva"
+                  sortConfig={sortConfig}
+                  onSort={requestSort}
+                />
+
+                <SortableHeader
+                  label="Statut"
+                  sortKey="statut"
+                  sortConfig={sortConfig}
+                  onSort={requestSort}
+                />
+
+                <SortableHeader
+                  label="Date envoi"
+                  sortKey="date_envoi"
+                  sortConfig={sortConfig}
+                  onSort={requestSort}
+                />
+
+                <SortableHeader
+                  label="Date paiement"
+                  sortKey="date_paiement"
+                  sortConfig={sortConfig}
+                  onSort={requestSort}
+                />
+
+                <th className="px-4 py-3 font-medium">
+                  Actions
+                </th>
               </tr>
             </thead>
 
@@ -1589,7 +1820,7 @@ function InvoicesQuickTable({
                   </td>
                 </tr>
               ) : (
-                rows.map((row) => {
+                sortedRows.map((row) => {
                   const saving = savingRowId === row._id;
 
                   return (
@@ -2649,6 +2880,12 @@ function OpportunitiesQuickTable({
   const [savingRowId, setSavingRowId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const {
+    sortedRows,
+    sortConfig,
+    requestSort,
+  } = useSortableRows(rows);
+
   const dynamicStageOptions = Array.from(
     new Set([
       ...OPPORTUNITY_STAGE_OPTIONS,
@@ -2700,13 +2937,54 @@ function OpportunitiesQuickTable({
           <table className="min-w-full text-left text-sm">
             <thead className="bg-slate-50 text-slate-500">
               <tr>
-                <th className="px-4 py-3 font-medium">Opportunité</th>
-                <th className="px-4 py-3 font-medium">Compte</th>
-                <th className="px-4 py-3 font-medium">Montant</th>
-                <th className="px-4 py-3 font-medium">Étape</th>
-                <th className="px-4 py-3 font-medium">Probabilité</th>
-                <th className="px-4 py-3 font-medium">Langues</th>
-                <th className="px-4 py-3 font-medium">Prestation</th>
+                <SortableHeader
+                  label="Opportunité"
+                  sortKey="opportunite"
+                  sortConfig={sortConfig}
+                  onSort={requestSort}
+                />
+
+                <SortableHeader
+                  label="Compte"
+                  sortKey="compte"
+                  sortConfig={sortConfig}
+                  onSort={requestSort}
+                />
+
+                <SortableHeader
+                  label="Montant"
+                  sortKey="montant"
+                  sortConfig={sortConfig}
+                  onSort={requestSort}
+                />
+
+                <SortableHeader
+                  label="Étape"
+                  sortKey="etape"
+                  sortConfig={sortConfig}
+                  onSort={requestSort}
+                />
+
+                <SortableHeader
+                  label="Probabilité"
+                  sortKey="probabilite"
+                  sortConfig={sortConfig}
+                  onSort={requestSort}
+                />
+
+                <SortableHeader
+                  label="Langues"
+                  sortKey="langues"
+                  sortConfig={sortConfig}
+                  onSort={requestSort}
+                />
+
+                <SortableHeader
+                  label="Prestation"
+                  sortKey="prestation"
+                  sortConfig={sortConfig}
+                  onSort={requestSort}
+                />
               </tr>
             </thead>
 
@@ -2718,7 +2996,7 @@ function OpportunitiesQuickTable({
                   </td>
                 </tr>
               ) : (
-                rows.map((row) => {
+                sortedRows.map((row) => {
                   const saving = savingRowId === row._id;
 
                   return (

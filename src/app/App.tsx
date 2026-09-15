@@ -20,6 +20,8 @@ import {
 } from 'lucide-react';
 import { refreshSession, logout } from './lib/auth';
 import wordsinvestLogo from '../assets/wordsinvest-logo.png';
+import { DEMO_MODE, API_URL } from '../lib/config';
+import { demoApi, getDemoUserOptions, downloadDemoQuote, downloadDemoInvoice } from './mockApi';
 
 type Role = 'employee' | 'admin';
 type EmployeeTab = 'COMPTES' | 'CONTACTS' | 'OPPORTUNITÉS' | 'SOUS-TRAITANT';
@@ -94,7 +96,6 @@ async function fetchAuditLogs(
   );
 }
 
-const API_URL = (import.meta as any).env?.VITE_API_URL || 'http://localhost:4000/api';
 
 const employeeTabs: { label: EmployeeTab; icon: ComponentType<any> }[] = [
   { label: 'COMPTES', icon: Building2 },
@@ -454,6 +455,10 @@ async function api<T>(
   token?: string,
   onTokenRefresh?: (data: AuthResponse) => void,
 ): Promise<T> {
+  if (DEMO_MODE) {
+    return demoApi<T>(path, options);
+  }
+
   async function doRequest(currentToken?: string) {
     return fetch(`${API_URL}${path}`, {
       ...options,
@@ -659,6 +664,11 @@ async function generateQuoteDocx(
   data: QuoteForm,
   onTokenRefresh?: (data: AuthResponse) => void,
 ) {
+  if (DEMO_MODE) {
+    downloadDemoQuote(data);
+    return;
+  }
+
   async function request(currentToken: string) {
     return fetch(`${API_URL}/quotes/generate`, {
       method: 'POST',
@@ -1741,6 +1751,13 @@ function InvoiceGenerationModal({
     setError(null);
 
     try {
+      if (DEMO_MODE) {
+        downloadDemoInvoice(invoice, form, lines);
+        await onGenerated();
+        onClose();
+        return;
+      }
+
       const response = await fetch(`${API_URL}/invoice-documents/${invoice._id}/generate-pdf`, {
         method: 'POST',
         credentials: 'include',
@@ -1785,6 +1802,16 @@ function InvoiceGenerationModal({
     setError(null);
 
     try {
+      if (DEMO_MODE) {
+        await demoApi(`/records/${invoice._entity}/${invoice._id}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ status: 'Prête e-facture' }),
+        });
+        await onGenerated();
+        alert("Mode démo : la facture a été marquée comme prête pour l'envoi électronique.");
+        return;
+      }
+
       const response = await fetch(`${API_URL}/invoice-documents/${invoice._id}/send-einvoice`, {
         method: 'POST',
         credentials: 'include',
@@ -2345,6 +2372,11 @@ function EditRecordModal({
     );
 
     if (!hasAssignedTo) return;
+
+    if (DEMO_MODE) {
+      setUserOptions(getDemoUserOptions());
+      return;
+    }
 
     fetch(`${API_URL}/records/options/users`, {
       credentials: 'include',
@@ -2982,6 +3014,12 @@ export default function App() {
               </div>
             </div>
           </div>
+
+          {DEMO_MODE ? (
+            <div className="mt-4 rounded-2xl border border-[#C05A83]/30 bg-[#8B0E3F]/20 px-4 py-3 text-xs font-medium uppercase tracking-[0.18em] text-[#F6DCE7]">
+              Mode démo · sans backend
+            </div>
+          ) : null}
 
           <div className="mt-8 rounded-2xl border border-white/10 bg-white/[0.06] p-4 text-sm text-white">
             <div className="text-white/45">Connecté en tant que</div>

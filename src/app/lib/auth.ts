@@ -1,5 +1,5 @@
 import { DEMO_MODE, API_URL } from '../../lib/config';
-import { DEMO_AUTH } from '../../demo/mockApi';
+import { DEMO_AUTH } from '../mockApi';
 
 const TOKEN_KEY = 'crm_access_token';
 

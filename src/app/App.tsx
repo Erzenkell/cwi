@@ -68,6 +68,7 @@ type OpportunityRow = EntityRow & {
   _id: number;
   _entity: string;
   _stage_column?: string | null;
+  _delivery_date?: string | null;
   opportunite: string;
   compte: string;
   montant: string;
@@ -354,12 +355,12 @@ const CREATE_VISIBLE_FIELDS: Record<string, string[]> = {
 };
 
 const OPPORTUNITY_STAGE_OPTIONS = [
-  'lance_s_t',
-  'facture',
-  'livre',
-  'converted',
-  'En attente',
-  'Annulée',
+  'Proposition',
+  'Lancé',
+  'Refusé',
+  'Livraison',
+  'Facturé',
+  'Test gratuit',
 ];
 
 function shouldShowColumnInModal(payload: RecordModalPayload, columnName: string) {
@@ -2524,6 +2525,116 @@ function EditRecordModal({
 }
 
 
+function normalizeOpportunityStage(value?: string | null) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+}
+
+function isToday(value?: string | null) {
+  if (!value) return false;
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return false;
+  }
+
+  const today = new Date();
+
+  return (
+    date.getFullYear() === today.getFullYear() &&
+    date.getMonth() === today.getMonth() &&
+    date.getDate() === today.getDate()
+  );
+}
+
+function getOpportunityRowColors(row: OpportunityRow) {
+  const stage = normalizeOpportunityStage(row.etape);
+
+  if (
+    (
+      stage === 'livraison' ||
+      stage === 'livre' ||
+      stage === 'livree'
+    ) &&
+    isToday(row._delivery_date)
+  ) {
+    return {
+      backgroundColor: '#9C3200',
+      color: '#FFFFFF',
+    };
+  }
+
+  if (stage === 'proposition') {
+    return {
+      backgroundColor: '#00E5ff',
+      color: '#172033',
+    };
+  }
+
+  if (
+    stage === 'lance' ||
+    stage === 'lance_s_t' ||
+    stage === 'lancement'
+  ) {
+    return {
+      backgroundColor: '#FFEA99',
+      color: '#172033',
+    };
+  }
+
+  if (
+    stage === 'refuse' ||
+    stage === 'refus'
+  ) {
+    return {
+      backgroundColor: '#666666',
+      color: '#FFFFFF',
+    };
+  }
+
+  if (
+    stage === 'facture' ||
+    stage === 'facturee'
+  ) {
+    return {
+      backgroundColor: '#0BDA51',
+      color: '#12301C',
+    };
+  }
+
+  if (
+    stage === 'test gratuit' ||
+    stage === 'test_gratuit' ||
+    stage === 'test'
+  ) {
+    return {
+      backgroundColor: '#9EB8A0',
+      color: '#172033',
+    };
+  }
+
+  if (
+    stage === 'livraison' ||
+    stage === 'livre' ||
+    stage === 'livree'
+  ) {
+    return {
+      backgroundColor: '#9C3200',
+      color: '#FFFFFF',
+    };
+  }
+
+  return {
+    backgroundColor: '#FFFFFF',
+    color: '#334155',
+  };
+}
+
+
 function OpportunitiesQuickTable({
   rows,
   token,
@@ -2614,7 +2725,8 @@ function OpportunitiesQuickTable({
                     <tr
                       key={row._id}
                       onClick={() => onRowClick(row)}
-                      className="cursor-pointer border-t border-slate-100 text-slate-700 transition hover:bg-indigo-50/60"
+                      style={getOpportunityRowColors(row)}
+                      className="cursor-pointer border-t border-black/5 transition-opacity hover:opacity-90"
                     >
                       <td className="px-4 py-3">{formatValue(row.opportunite)}</td>
                       <td className="px-4 py-3">{formatValue(row.compte)}</td>

@@ -109,6 +109,13 @@ async function opportunitiesView() {
   const ao = hasAccountOpportunities ? await getColumns('account_opportunities') : new Set();
   const a = hasAccounts ? await getColumns('accounts') : new Set();
 
+  const deliveryDateColumn = firstColumn(o, [
+    'delivery_date',
+    'delivered_at',
+    'date_livraison',
+    'due_date',
+  ]);
+
   const canJoinAccount =
     hasAccountOpportunities &&
     hasAccounts &&
@@ -140,6 +147,11 @@ async function opportunitiesView() {
       ${percentExpr('o', o, ['probability', 'probability_percent'])} AS probabilite,
       ${textExpr('o', o, ['languages', 'language', 'source_language'])} AS langues,
       ${textExpr('o', o, ['task_type', 'service_type', 'type', 'category'])} AS prestation
+      ${
+        deliveryDateColumn
+          ? `o.${deliveryDateColumn} AS _delivery_date`
+          : 'NULL AS _delivery_date'
+      },
     FROM opportunities o
     ${joinSql}
     ${whereNotDeleted('o', o)}

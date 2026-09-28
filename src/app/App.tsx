@@ -72,6 +72,8 @@ type OpportunityRow = EntityRow & {
   _delivery_date?: string | null;
 
   id_opportunite: number;
+  campaign_id: number | null;
+
   opportunite: string;
   compte: string;
   montant: string;
@@ -165,6 +167,7 @@ const tabMeta: Record<Tab, { title: string; subtitle: string; columns: string[] 
     subtitle: 'Suivi des opportunités commerciales.',
     columns: [
       'ID',
+      'Campaign ID',
       'Opportunité',
       'Compte',
       'Montant',
@@ -229,6 +232,25 @@ const TECHNICAL_FIELDS = new Set([
   'reset_password_token',
   'remember_token',
   'confirmation_token',
+  'subscribed_users',
+  'user_id',
+  'access',
+  'currency',
+  'doc_format',
+  'allow_all_language_pairs',
+  'do_not_call',
+  'nda',
+  'email_invoice',
+  'skype',
+]);
+
+const GLOBAL_EDIT_HIDDEN_FIELDS = new Set([
+  'access',
+  'currency',
+  'closes_on',
+  'close_on',
+  'lock_version',
+  'old_uniqueid',
 ]);
 
 const OPPORTUNITY_EDIT_HIDDEN_FIELDS = new Set([
@@ -238,6 +260,8 @@ const OPPORTUNITY_EDIT_HIDDEN_FIELDS = new Set([
   'closes_on',
   'subcontract_unit_price',
   'subscribed_users',
+  'user_id',
+  'campaign_id'
 ]);
 
 const CREATE_HIDDEN_FIELDS = new Set([
@@ -253,7 +277,6 @@ const CREATE_HIDDEN_FIELDS = new Set([
   'currency',
   'invoice_year',
   'lock_version',
-  'subscribed_users'
 ]);
 
 const CREATE_VISIBLE_FIELDS: Record<string, string[]> = {
@@ -391,10 +414,28 @@ function shouldShowColumnInModal(
   payload: RecordModalPayload,
   columnName: string
 ) {
+  if (TECHNICAL_FIELDS.has(columnName)) {
+    return false;
+  }
+
+  if (
+    payload.mode === 'edit' &&
+    GLOBAL_EDIT_HIDDEN_FIELDS.has(columnName)
+  ) {
+    return false;
+  }
+
   if (
     payload.table === 'opportunities' &&
     payload.mode === 'edit' &&
     OPPORTUNITY_EDIT_HIDDEN_FIELDS.has(columnName)
+  ) {
+    return false;
+  }
+
+  if (
+    payload.mode === 'create' &&
+    CREATE_HIDDEN_FIELDS.has(columnName)
   ) {
     return false;
   }
@@ -413,14 +454,7 @@ function shouldShowColumnInModal(
     return false;
   }
 
-  if (
-    payload.mode === 'create' &&
-    CREATE_HIDDEN_FIELDS.has(columnName)
-  ) {
-    return false;
-  }
-
-  return !TECHNICAL_FIELDS.has(columnName);
+  return true;
 }
 
 function buildCreateInitialRecord(
@@ -3215,6 +3249,13 @@ function OpportunitiesQuickTable({
                 />
 
                 <SortableHeader
+                  label="Campaign ID"
+                  sortKey="campaign_id"
+                  sortConfig={sortConfig}
+                  onSort={requestSort}
+                />
+
+                <SortableHeader
                   label="Opportunité"
                   sortKey="opportunite"
                   sortConfig={sortConfig}
@@ -3285,6 +3326,10 @@ function OpportunitiesQuickTable({
                     >
                       <td className="px-4 py-3 font-medium">
                         #{row.id_opportunite}
+                      </td>
+
+                      <td className="px-4 py-3">
+                        {row.campaign_id ? `#${row.campaign_id}` : '—'}
                       </td>
 
                       <td className="px-4 py-3">

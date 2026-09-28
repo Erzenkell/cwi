@@ -232,15 +232,20 @@ async function opportunitiesView() {
         `
         : `'—'`;
 
+  const campaignIdExpr = hasColumn(o, 'campaign_id')
+    ? 'o.campaign_id'
+    : 'NULL';
+
   const sql = `
     SELECT
       ${entityMeta('o', o, 'opportunities')},
 
       ${stageColumnExpr},
-
       ${deliveryDateExpr},
 
       o.id AS id_opportunite,
+
+      ${campaignIdExpr} AS campaign_id,
 
       ${textExpr(
         'o',
@@ -253,13 +258,7 @@ async function opportunitiesView() {
       ${moneyExpr(
         'o',
         o,
-        [
-          'amount',
-          'value',
-          'value_eur',
-          'revenue',
-          'budget',
-        ]
+        ['amount', 'value', 'value_eur', 'revenue', 'budget']
       )} AS montant,
 
       ${textExpr(
@@ -275,12 +274,7 @@ async function opportunitiesView() {
       ${textExpr(
         'o',
         o,
-        [
-          'task_type',
-          'service_type',
-          'type',
-          'category',
-        ]
+        ['task_type', 'service_type', 'type', 'category']
       )} AS prestation
 
     FROM opportunities o

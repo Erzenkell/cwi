@@ -50,6 +50,37 @@ function hasDbColumn(columns, columnName) {
   return toColumnSet(columns).has(columnName);
 }
 
+async function resolveDefaultCampaignId() {
+  const campaignsExists = await hasTable('campaigns');
+
+  if (!campaignsExists) {
+    return null;
+  }
+
+  const columns = await getColumns('campaigns');
+  const names = new Set(
+    columns.map((column) =>
+      typeof column === 'string'
+        ? column
+        : column.column_name
+    )
+  );
+
+  const deletedFilter = names.has('deleted_at')
+    ? 'WHERE deleted_at IS NULL'
+    : '';
+
+  const result = await query(`
+    SELECT id
+    FROM campaigns
+    ${deletedFilter}
+    ORDER BY id DESC
+    LIMIT 1
+  `);
+
+  return result.rows[0]?.id ?? null;
+}
+
 async function resolveDefaultUserId(req) {
   try {
     const result = await query(
@@ -106,6 +137,18 @@ async function applyCreateDefaults(tableName, payload, columnNames, req) {
 
   if (columnNames.includes('old_uniqueid') && isEmptyCreateValue(payload.old_uniqueid)) {
     payload.old_uniqueid = generateOldUniqueId();
+  }
+
+  if (
+    tableName === 'opportunities' &&
+    columnNames.includes('campaign_id') &&
+    isEmptyCreateValue(payload.campaign_id)
+  ) {
+    const campaignId = await resolveDefaultCampaignId();
+
+    if (campaignId !== null) {
+      payload.campaign_id = campaignId;
+    }
   }
 
   return payload;

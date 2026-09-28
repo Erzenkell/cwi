@@ -100,21 +100,27 @@ async function contactsView() {
 }
 
 async function opportunitiesView() {
-  const missing = await emptyIfMissing('opportunities');
-  if (missing) return missing;
+  const tableExists = await hasTable('opportunities');
+
+  if (!tableExists) {
+    return { rows: [] };
+  }
 
   const o = await getColumns('opportunities');
-  const hasAccountOpportunities = await hasTable('account_opportunities');
-  const hasAccounts = await hasTable('accounts');
-  const ao = hasAccountOpportunities ? await getColumns('account_opportunities') : new Set();
-  const a = hasAccounts ? await getColumns('accounts') : new Set();
 
-  const deliveryDateColumn = firstColumn(o, [
-    'delivery_date',
-    'delivered_at',
-    'date_livraison',
-    'due_date',
-  ]);
+  const hasAccountOpportunities =
+    await hasTable('account_opportunities');
+
+  const hasAccounts =
+    await hasTable('accounts');
+
+  const ao = hasAccountOpportunities
+    ? await getColumns('account_opportunities')
+    : new Set();
+
+  const a = hasAccounts
+    ? await getColumns('accounts')
+    : new Set();
 
   const canJoinAccount =
     hasAccountOpportunities &&
@@ -124,40 +130,165 @@ async function opportunitiesView() {
     hasColumn(ao, 'account_id') &&
     hasColumn(a, 'id');
 
+  const stageColumn = firstColumn(o, [
+    'stage',
+    'status',
+    'state',
+  ]);
+
+  const deliveryDateColumn = firstColumn(o, [
+    'out_date',
+    'delivery_date',
+    'delivered_at',
+    'date_livraison',
+    'due_date',
+  ]);
+
+  const languageColumn = firstColumn(o, [
+    'language_pair',
+    'languages',
+    'language',
+  ]);
+
+  const stageColumnExpr = stageColumn
+    ? `'${stageColumn}'::text AS _stage_column`
+    : `NULL::text AS _stage_column`;
+
+  const deliveryDateExpr = deliveryDateColumn
+    ? `o.${deliveryDateColumn} AS _delivery_date`
+    : `NULL AS _delivery_date`;
+
+  /*
+   * Marge :
+   *
+   * prix vendu = unit_price
+   * coût sous-traitant = subcontract_unit_price
+   *
+   * marge % =
+   * ((prix vendu - coût) / prix vendu) * 100
+   */
+  const marginExpr =
+    hasColumn(o, 'unit_price') &&
+    hasColumn(o, 'subcontract_unit_price')
+      ? `
+        CASE
+          WHEN COALESCE(o.unit_price, 0) = 0
+            THEN NULL
+          ELSE ROUND(
+            (
+              (
+                o.unit_price
+                - COALESCE(o.subcontract_unit_price, 0)
+              )
+              / NULLIF(o.unit_price, 0)
+              * 100
+            )::numeric,
+            2
+          )
+        END
+      `
+      : `NULL`;
+
+  const accountExpr = canJoinAccount
+    ? textExpr('a', a, [
+        'name',
+        'company',
+        'account_name',
+      ])
+    : `'—'`;
+
   const joinSql = canJoinAccount
     ? `
       LEFT JOIN account_opportunities ao
-        ON ao.opportunity_id = o.id ${hasColumn(ao, 'deleted_at') ? 'AND ao.deleted_at IS NULL' : ''}
+        ON ao.opportunity_id = o.id
+        ${
+          hasColumn(ao, 'deleted_at')
+            ? 'AND ao.deleted_at IS NULL'
+            : ''
+        }
+
       LEFT JOIN accounts a
-        ON a.id = ao.account_id ${hasColumn(a, 'deleted_at') ? 'AND a.deleted_at IS NULL' : ''}
+        ON a.id = ao.account_id
+        ${
+          hasColumn(a, 'deleted_at')
+            ? 'AND a.deleted_at IS NULL'
+            : ''
+        }
     `
     : '';
 
-  const stageColumn = firstColumn(o, ['stage', 'status', 'state']);
+  const languageExpr = languageColumn
+    ? `COALESCE(NULLIF(o.${languageColumn}::text, ''), '—')`
+    : (
+        hasColumn(o, 'source_language') &&
+        hasColumn(o, 'target_language')
+      )
+        ? `
+          CONCAT(
+            COALESCE(o.source_language::text, ''),
+            ' > ',
+            COALESCE(o.target_language::text, '')
+          )
+        `
+        : `'—'`;
 
-  return query(`
+  const campaignIdExpr = hasColumn(o, 'campaign_id')
+    ? 'o.campaign_id'
+    : 'NULL';
+
+  const sql = `
     SELECT
       ${entityMeta('o', o, 'opportunities')},
-      ${stageColumn ? `'${stageColumn}'` : 'NULL'} AS _stage_column,
 
-      ${textExpr('o', o, ['name', 'label', 'title', 'subject'])} AS opportunite,
-      ${canJoinAccount ? textExpr('a', a, ['name', 'company', 'account_name']) : `'—'`} AS compte,
-      ${moneyExpr('o', o, ['amount', 'value', 'revenue', 'budget'])} AS montant,
-      ${textExpr('o', o, ['stage', 'status', 'state'])} AS etape,
-      ${percentExpr('o', o, ['probability', 'probability_percent'])} AS probabilite,
-      ${textExpr('o', o, ['languages', 'language', 'source_language'])} AS langues,
-      ${textExpr('o', o, ['task_type', 'service_type', 'type', 'category'])} AS prestation
-      ${
-        deliveryDateColumn
-          ? `o.${deliveryDateColumn} AS _delivery_date`
-          : 'NULL AS _delivery_date'
-      },
+      ${stageColumnExpr},
+      ${deliveryDateExpr},
+
+      o.id AS id_opportunite,
+
+      ${campaignIdExpr} AS campaign_id,
+
+      ${textExpr(
+        'o',
+        o,
+        ['name', 'label', 'title', 'subject']
+      )} AS opportunite,
+
+      ${accountExpr} AS compte,
+
+      ${moneyExpr(
+        'o',
+        o,
+        ['amount', 'value', 'value_eur', 'revenue', 'budget']
+      )} AS montant,
+
+      ${textExpr(
+        'o',
+        o,
+        ['stage', 'status', 'state']
+      )} AS etape,
+
+      ${marginExpr} AS marge,
+
+      ${languageExpr} AS langues,
+
+      ${textExpr(
+        'o',
+        o,
+        ['task_type', 'service_type', 'type', 'category']
+      )} AS prestation
+
     FROM opportunities o
+
     ${joinSql}
+
     ${whereNotDeleted('o', o)}
+
     ${orderBy('o', o)}
+
     LIMIT 50
-  `);
+  `;
+
+  return query(sql);
 }
 
 async function suppliersView() {

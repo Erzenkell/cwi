@@ -100,21 +100,24 @@ async function contactsView() {
 }
 
 async function opportunitiesView() {
-  const missing = await emptyIfMissing('opportunities');
-  if (missing) return missing;
+  const tableExists = await hasTable('opportunities');
+
+  if (!tableExists) {
+    return { rows: [] };
+  }
 
   const o = await getColumns('opportunities');
+
   const hasAccountOpportunities = await hasTable('account_opportunities');
   const hasAccounts = await hasTable('accounts');
-  const ao = hasAccountOpportunities ? await getColumns('account_opportunities') : new Set();
-  const a = hasAccounts ? await getColumns('accounts') : new Set();
 
-  const deliveryDateColumn = firstColumn(o, [
-    'delivery_date',
-    'delivered_at',
-    'date_livraison',
-    'due_date',
-  ]);
+  const ao = hasAccountOpportunities
+    ? await getColumns('account_opportunities')
+    : new Set();
+
+  const a = hasAccounts
+    ? await getColumns('accounts')
+    : new Set();
 
   const canJoinAccount =
     hasAccountOpportunities &&
@@ -124,40 +127,133 @@ async function opportunitiesView() {
     hasColumn(ao, 'account_id') &&
     hasColumn(a, 'id');
 
+  const stageColumn = firstColumn(o, [
+    'stage',
+    'status',
+    'state',
+  ]);
+
+  const deliveryDateColumn = firstColumn(o, [
+    'delivery_date',
+    'delivered_at',
+    'date_livraison',
+    'due_date',
+    'delivery_at',
+  ]);
+
+  const stageColumnExpr = stageColumn
+    ? `'${stageColumn}'::text AS _stage_column`
+    : `NULL::text AS _stage_column`;
+
+  const deliveryDateExpr = deliveryDateColumn
+    ? `o.${deliveryDateColumn} AS _delivery_date`
+    : `NULL AS _delivery_date`;
+
+  const accountExpr = canJoinAccount
+    ? textExpr('a', a, [
+        'name',
+        'company',
+        'account_name',
+      ])
+    : `'—'`;
+
   const joinSql = canJoinAccount
     ? `
       LEFT JOIN account_opportunities ao
-        ON ao.opportunity_id = o.id ${hasColumn(ao, 'deleted_at') ? 'AND ao.deleted_at IS NULL' : ''}
+        ON ao.opportunity_id = o.id
+        ${
+          hasColumn(ao, 'deleted_at')
+            ? 'AND ao.deleted_at IS NULL'
+            : ''
+        }
+
       LEFT JOIN accounts a
-        ON a.id = ao.account_id ${hasColumn(a, 'deleted_at') ? 'AND a.deleted_at IS NULL' : ''}
+        ON a.id = ao.account_id
+        ${
+          hasColumn(a, 'deleted_at')
+            ? 'AND a.deleted_at IS NULL'
+            : ''
+        }
     `
     : '';
 
-  const stageColumn = firstColumn(o, ['stage', 'status', 'state']);
-
-  return query(`
+  const sql = `
     SELECT
       ${entityMeta('o', o, 'opportunities')},
-      ${stageColumn ? `'${stageColumn}'` : 'NULL'} AS _stage_column,
 
-      ${textExpr('o', o, ['name', 'label', 'title', 'subject'])} AS opportunite,
-      ${canJoinAccount ? textExpr('a', a, ['name', 'company', 'account_name']) : `'—'`} AS compte,
-      ${moneyExpr('o', o, ['amount', 'value', 'revenue', 'budget'])} AS montant,
-      ${textExpr('o', o, ['stage', 'status', 'state'])} AS etape,
-      ${percentExpr('o', o, ['probability', 'probability_percent'])} AS probabilite,
-      ${textExpr('o', o, ['languages', 'language', 'source_language'])} AS langues,
-      ${textExpr('o', o, ['task_type', 'service_type', 'type', 'category'])} AS prestation
-      ${
-        deliveryDateColumn
-          ? `o.${deliveryDateColumn} AS _delivery_date`
-          : 'NULL AS _delivery_date'
-      },
+      ${stageColumnExpr},
+
+      ${deliveryDateExpr},
+
+      ${textExpr(
+        'o',
+        o,
+        ['name', 'label', 'title', 'subject']
+      )} AS opportunite,
+
+      ${accountExpr} AS compte,
+
+      ${moneyExpr(
+        'o',
+        o,
+        [
+          'amount',
+          'value',
+          'value_eur',
+          'revenue',
+          'budget',
+        ]
+      )} AS montant,
+
+      ${textExpr(
+        'o',
+        o,
+        ['stage', 'status', 'state']
+      )} AS etape,
+
+      ${percentExpr(
+        'o',
+        o,
+        [
+          'probability',
+          'probability_percent',
+        ]
+      )} AS probabilite,
+
+      ${textExpr(
+        'o',
+        o,
+        [
+          'languages',
+          'language',
+          'language_pair',
+          'source_language',
+        ]
+      )} AS langues,
+
+      ${textExpr(
+        'o',
+        o,
+        [
+          'task_type',
+          'service_type',
+          'type',
+          'category',
+        ]
+      )} AS prestation
+
     FROM opportunities o
+
     ${joinSql}
+
     ${whereNotDeleted('o', o)}
+
     ${orderBy('o', o)}
+
     LIMIT 50
-  `);
+  `;
+
+  return query(sql);
 }
 
 async function suppliersView() {

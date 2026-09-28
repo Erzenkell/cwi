@@ -108,8 +108,11 @@ async function opportunitiesView() {
 
   const o = await getColumns('opportunities');
 
-  const hasAccountOpportunities = await hasTable('account_opportunities');
-  const hasAccounts = await hasTable('accounts');
+  const hasAccountOpportunities =
+    await hasTable('account_opportunities');
+
+  const hasAccounts =
+    await hasTable('accounts');
 
   const ao = hasAccountOpportunities
     ? await getColumns('account_opportunities')
@@ -134,11 +137,17 @@ async function opportunitiesView() {
   ]);
 
   const deliveryDateColumn = firstColumn(o, [
+    'out_date',
     'delivery_date',
     'delivered_at',
     'date_livraison',
     'due_date',
-    'delivery_at',
+  ]);
+
+  const languageColumn = firstColumn(o, [
+    'language_pair',
+    'languages',
+    'language',
   ]);
 
   const stageColumnExpr = stageColumn
@@ -148,6 +157,37 @@ async function opportunitiesView() {
   const deliveryDateExpr = deliveryDateColumn
     ? `o.${deliveryDateColumn} AS _delivery_date`
     : `NULL AS _delivery_date`;
+
+  /*
+   * Marge :
+   *
+   * prix vendu = unit_price
+   * coût sous-traitant = subcontract_unit_price
+   *
+   * marge % =
+   * ((prix vendu - coût) / prix vendu) * 100
+   */
+  const marginExpr =
+    hasColumn(o, 'unit_price') &&
+    hasColumn(o, 'subcontract_unit_price')
+      ? `
+        CASE
+          WHEN COALESCE(o.unit_price, 0) = 0
+            THEN NULL
+          ELSE ROUND(
+            (
+              (
+                o.unit_price
+                - COALESCE(o.subcontract_unit_price, 0)
+              )
+              / NULLIF(o.unit_price, 0)
+              * 100
+            )::numeric,
+            2
+          )
+        END
+      `
+      : `NULL`;
 
   const accountExpr = canJoinAccount
     ? textExpr('a', a, [
@@ -177,6 +217,21 @@ async function opportunitiesView() {
     `
     : '';
 
+  const languageExpr = languageColumn
+    ? `COALESCE(NULLIF(o.${languageColumn}::text, ''), '—')`
+    : (
+        hasColumn(o, 'source_language') &&
+        hasColumn(o, 'target_language')
+      )
+        ? `
+          CONCAT(
+            COALESCE(o.source_language::text, ''),
+            ' > ',
+            COALESCE(o.target_language::text, '')
+          )
+        `
+        : `'—'`;
+
   const sql = `
     SELECT
       ${entityMeta('o', o, 'opportunities')},
@@ -184,6 +239,8 @@ async function opportunitiesView() {
       ${stageColumnExpr},
 
       ${deliveryDateExpr},
+
+      o.id AS id_opportunite,
 
       ${textExpr(
         'o',
@@ -211,25 +268,9 @@ async function opportunitiesView() {
         ['stage', 'status', 'state']
       )} AS etape,
 
-      ${percentExpr(
-        'o',
-        o,
-        [
-          'probability',
-          'probability_percent',
-        ]
-      )} AS probabilite,
+      ${marginExpr} AS marge,
 
-      ${textExpr(
-        'o',
-        o,
-        [
-          'languages',
-          'language',
-          'language_pair',
-          'source_language',
-        ]
-      )} AS langues,
+      ${languageExpr} AS langues,
 
       ${textExpr(
         'o',

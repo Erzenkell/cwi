@@ -67,13 +67,16 @@ type AuditLog = {
 type OpportunityRow = EntityRow & {
   _id: number;
   _entity: string;
+
   _stage_column?: string | null;
   _delivery_date?: string | null;
+
+  id_opportunite: number;
   opportunite: string;
   compte: string;
   montant: string;
   etape: string;
-  probabilite: string;
+  marge: number | string | null;
   langues: string;
   prestation: string;
 };
@@ -157,10 +160,19 @@ const tabMeta: Record<Tab, { title: string; subtitle: string; columns: string[] 
     subtitle: 'Contacts rattachés aux comptes via account_contacts.',
     columns: ['Nom', 'Compte', 'Email', 'Téléphone', 'Fonction', 'Localisation'],
   },
-  OPPORTUNITÉS: {
+  'OPPORTUNITÉS': {
     title: 'Opportunités',
-    subtitle: 'Pipeline issu des opportunités.',
-    columns: ['Opportunité', 'Compte', 'Montant', 'Étape', 'Probabilité', 'Langues', 'Prestation'],
+    subtitle: 'Suivi des opportunités commerciales.',
+    columns: [
+      'ID',
+      'Opportunité',
+      'Compte',
+      'Montant',
+      'Étape',
+      'Marge',
+      'Langues',
+      'Prestation',
+    ],
   },
   'SOUS-TRAITANT': {
     title: 'Sous-traitants',
@@ -219,6 +231,15 @@ const TECHNICAL_FIELDS = new Set([
   'confirmation_token',
 ]);
 
+const OPPORTUNITY_EDIT_HIDDEN_FIELDS = new Set([
+  'access',
+  'currency',
+  'close_on',
+  'closes_on',
+  'subcontract_unit_price',
+  'subscribed_users',
+]);
+
 const CREATE_HIDDEN_FIELDS = new Set([
   'id',
   'user_id',
@@ -232,6 +253,7 @@ const CREATE_HIDDEN_FIELDS = new Set([
   'currency',
   'invoice_year',
   'lock_version',
+  'subscribed_users'
 ]);
 
 const CREATE_VISIBLE_FIELDS: Record<string, string[]> = {
@@ -289,8 +311,10 @@ const CREATE_VISIBLE_FIELDS: Record<string, string[]> = {
     'budget',
     'stage',
     'probability',
-    'source_language',
-    'target_language',
+    'unit_price',
+    'subcontract_unit_price',
+    'in_date',
+    'out_date',
     'task_type',
     'service_type',
     'description',
@@ -363,24 +387,40 @@ const OPPORTUNITY_STAGE_OPTIONS = [
   'Test gratuit',
 ];
 
-function shouldShowColumnInModal(payload: RecordModalPayload, columnName: string) {
-  if (isReadOnlyColumn(columnName)) return false;
-
-  if (payload.mode !== 'create') {
-    return true;
-  }
-
-  if (CREATE_HIDDEN_FIELDS.has(columnName)) {
+function shouldShowColumnInModal(
+  payload: RecordModalPayload,
+  columnName: string
+) {
+  if (
+    payload.table === 'opportunities' &&
+    payload.mode === 'edit' &&
+    OPPORTUNITY_EDIT_HIDDEN_FIELDS.has(columnName)
+  ) {
     return false;
   }
 
-  const allowedFields = CREATE_VISIBLE_FIELDS[payload.table];
-
-  if (!allowedFields) {
-    return !columnName.endsWith('_id');
+  if (
+    payload.table === 'opportunities' &&
+    payload.mode === 'create' &&
+    [
+      'language',
+      'languages',
+      'language_pair',
+      'source_language',
+      'target_language',
+    ].includes(columnName)
+  ) {
+    return false;
   }
 
-  return allowedFields.includes(columnName);
+  if (
+    payload.mode === 'create' &&
+    CREATE_HIDDEN_FIELDS.has(columnName)
+  ) {
+    return false;
+  }
+
+  return !TECHNICAL_FIELDS.has(columnName);
 }
 
 function buildCreateInitialRecord(
@@ -2549,11 +2589,52 @@ function normalizeInputValue(value: any) {
   return value;
 }
 
+type OpportunityLanguageConfig =
+  | { type: 'single'; column: string }
+  | { type: 'pair'; sourceColumn: string; targetColumn: string }
+  | null;
+
+function getOpportunityLanguageConfig(columns: DbColumn[]): OpportunityLanguageConfig {
+  const names = new Set(columns.map((column) => column.column_name));
+
+  for (const name of ['language_pair', 'languages', 'language']) {
+    if (names.has(name)) {
+      return {
+        type: 'single',
+        column: name,
+      };
+    }
+  }
+
+  if (names.has('source_language') && names.has('target_language')) {
+    return {
+      type: 'pair',
+      sourceColumn: 'source_language',
+      targetColumn: 'target_language',
+    };
+  }
+
+  return null;
+}
+
+function splitOpportunityLanguagePair(value: string) {
+  const parts = value
+    .split(/\s*(?:>|→|\/|=>)\s*/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  return {
+    source: parts[0] || value.trim(),
+    target: parts[1] || '',
+  };
+}
+
 function EditRecordModal({
   payload,
   saving,
   error,
   token,
+  opportunityLanguageOptions,
   onClose,
   onSave,
 }: {
@@ -2561,15 +2642,23 @@ function EditRecordModal({
   saving: boolean;
   error: string | null;
   token: string;
+  opportunityLanguageOptions: string[];
   onClose: () => void;
-  onSave: (values: Record<string, any>) => void;
+  onSave: (
+    values: Record<string, any>,
+    languages?: string[]
+  ) => void;
 }) {
   const [form, setForm] = useState<Record<string, any>>(payload.record);
   const [userOptions, setUserOptions] = useState<UserOption[]>([]);
+  const [selectedLanguages, setSelectedLanguages] = useState<string[]>([]);
+  const [customLanguage, setCustomLanguage] = useState('');
 
   useEffect(() => {
     setForm(payload.record);
-  }, [payload.record]);
+    setSelectedLanguages([]);
+    setCustomLanguage('');
+  }, [payload.record, payload.table, payload.mode]);
 
   useEffect(() => {
     const hasAssignedTo = payload.columns.some(
@@ -2596,6 +2685,65 @@ function EditRecordModal({
       });
   }, [payload.columns, token]);
 
+  const opportunityMargin = useMemo(() => {
+    if (payload.table !== 'opportunities') {
+      return null;
+    }
+
+    const sellingPrice = Number(form.unit_price);
+    const subcontractPrice = Number(form.subcontract_unit_price);
+
+    if (!Number.isFinite(sellingPrice) || sellingPrice <= 0) {
+      return null;
+    }
+
+    const cost = Number.isFinite(subcontractPrice)
+      ? subcontractPrice
+      : 0;
+
+    return ((sellingPrice - cost) / sellingPrice) * 100;
+  }, [
+    payload.table,
+    form.unit_price,
+    form.subcontract_unit_price,
+  ]);
+
+  const opportunityLanguageConfig =
+    payload.table === 'opportunities'
+      ? getOpportunityLanguageConfig(payload.columns)
+      : null;
+
+  function toggleLanguage(language: string) {
+    setSelectedLanguages((current) =>
+      current.includes(language)
+        ? current.filter((item) => item !== language)
+        : [...current, language]
+    );
+  }
+
+  function addCustomLanguage() {
+    const value = customLanguage.trim();
+
+    if (!value) return;
+
+    setSelectedLanguages((current) =>
+      current.includes(value)
+        ? current
+        : [...current, value]
+    );
+
+    setCustomLanguage('');
+  }
+
+  const title =
+    payload.table === 'opportunities'
+      ? payload.mode === 'create'
+        ? 'Créer une opportunité'
+        : `Modifier l’opportunité #${payload.record.id}`
+      : payload.mode === 'create'
+        ? 'Créer un nouvel enregistrement'
+        : `Modifier l’enregistrement #${payload.record.id}`;
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#2F2F2F]/60 p-4 backdrop-blur-sm">
       <div className="max-h-[90vh] w-full max-w-5xl overflow-hidden rounded-[28px] bg-[#FFFDFB] shadow-2xl shadow-[#2F2F2F]/20">
@@ -2604,10 +2752,9 @@ function EditRecordModal({
             <div className="text-xs uppercase tracking-[0.2em] text-[#8A8582]">
               {payload.table}
             </div>
+
             <h2 className="mt-1 text-2xl font-semibold text-[#2F2F2F]">
-              {payload.mode === 'create'
-                ? 'Créer un nouvel enregistrement'
-                : `Modifier l’enregistrement #${payload.record.id}`}
+              {title}
             </h2>
           </div>
 
@@ -2623,6 +2770,104 @@ function EditRecordModal({
           {error ? (
             <div className="mb-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
               {error}
+            </div>
+          ) : null}
+
+          {payload.table === 'opportunities' && payload.mode === 'edit' ? (
+            <div className="mb-5 flex flex-wrap items-center gap-3 rounded-2xl border border-[#E8E3DF] bg-[#F8F7F6] px-4 py-3">
+              <span className="text-xs font-medium uppercase tracking-[0.16em] text-[#8A8582]">
+                ID opportunité
+              </span>
+              <span className="font-semibold text-[#2F2F2F]">
+                #{payload.record.id}
+              </span>
+            </div>
+          ) : null}
+
+          {payload.table === 'opportunities' &&
+          payload.mode === 'create' &&
+          opportunityLanguageConfig ? (
+            <div className="mb-5 rounded-3xl border border-[#E8E3DF] bg-white p-5">
+              <div className="flex flex-col gap-1">
+                <h3 className="text-base font-semibold text-[#2F2F2F]">
+                  Langues
+                </h3>
+
+                <p className="text-sm text-[#8A8582]">
+                  Sélectionne plusieurs paires : une opportunité distincte sera créée pour chaque langue.
+                </p>
+              </div>
+
+              {opportunityLanguageOptions.length > 0 ? (
+                <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                  {opportunityLanguageOptions.map((language) => {
+                    const checked = selectedLanguages.includes(language);
+
+                    return (
+                      <label
+                        key={language}
+                        className={`flex cursor-pointer items-center gap-3 rounded-xl border px-3 py-2 transition ${
+                          checked
+                            ? 'border-[#8B0E3F] bg-[#8B0E3F]/5'
+                            : 'border-[#E8E3DF] hover:bg-[#F8F7F6]'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggleLanguage(language)}
+                        />
+                        <span className="text-sm text-[#4E4E4E]">
+                          {language}
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+              ) : null}
+
+              <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+                <input
+                  value={customLanguage}
+                  onChange={(e) => setCustomLanguage(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      addCustomLanguage();
+                    }
+                  }}
+                  placeholder="Ajouter une paire, ex. FR > EN"
+                  className="min-w-0 flex-1 rounded-2xl border border-[#E8E3DF] px-4 py-3 text-sm outline-none focus:border-[#8B0E3F]"
+                />
+
+                <button
+                  type="button"
+                  onClick={addCustomLanguage}
+                  className="rounded-2xl border border-[#8B0E3F]/25 px-4 py-3 text-sm font-medium text-[#8B0E3F] hover:bg-[#8B0E3F]/5"
+                >
+                  Ajouter
+                </button>
+              </div>
+
+              {selectedLanguages.length > 0 ? (
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {selectedLanguages.map((language) => (
+                    <button
+                      key={language}
+                      type="button"
+                      onClick={() => toggleLanguage(language)}
+                      className="rounded-full bg-[#8B0E3F] px-3 py-1.5 text-xs font-medium text-white"
+                      title="Cliquer pour retirer"
+                    >
+                      {language} ×
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <div className="mt-3 text-xs text-amber-700">
+                  Sélectionne au moins une langue avant l’enregistrement.
+                </div>
+              )}
             </div>
           ) : null}
 
@@ -2667,30 +2912,53 @@ function EditRecordModal({
                   );
                 }
 
-              if (column.data_type === 'boolean') {
-                return (
-                  <label
-                    key={name}
-                    className="flex items-center justify-between rounded-2xl border border-[#E8E3DF] p-4"
-                  >
-                    <div>
-                      <div className="font-medium text-[#2F2F2F]">{name}</div>
-                      <div className="text-xs text-[#8A8582]">{column.data_type}</div>
+                if (column.data_type === 'boolean') {
+                  return (
+                    <label
+                      key={name}
+                      className="flex items-center justify-between rounded-2xl border border-[#E8E3DF] p-4"
+                    >
+                      <div>
+                        <div className="font-medium text-[#2F2F2F]">{name}</div>
+                        <div className="text-xs text-[#8A8582]">{column.data_type}</div>
+                      </div>
+
+                      <input
+                        type="checkbox"
+                        checked={Boolean(value)}
+                        disabled={readOnly}
+                        onChange={(e) => setForm({ ...form, [name]: e.target.checked })}
+                      />
+                    </label>
+                  );
+                }
+
+                if (column.data_type === 'text' || column.data_type.includes('json')) {
+                  return (
+                    <div key={name} className="md:col-span-2">
+                      <label className="mb-2 block text-sm font-medium text-[#4E4E4E]">
+                        {name}
+                        <span className="ml-2 text-xs font-normal text-[#8A8582]">
+                          {column.data_type}
+                        </span>
+                      </label>
+
+                      <textarea
+                        value={
+                          typeof value === 'object' && value !== null
+                            ? JSON.stringify(value, null, 2)
+                            : normalizeInputValue(value)
+                        }
+                        disabled={readOnly}
+                        onChange={(e) => setForm({ ...form, [name]: e.target.value })}
+                        className="min-h-24 w-full rounded-2xl border border-[#E8E3DF] px-4 py-3 text-sm outline-none focus:border-[#8B0E3F] disabled:bg-[#F3EFEB] disabled:text-[#8A8582]"
+                      />
                     </div>
+                  );
+                }
 
-                    <input
-                      type="checkbox"
-                      checked={Boolean(value)}
-                      disabled={readOnly}
-                      onChange={(e) => setForm({ ...form, [name]: e.target.checked })}
-                    />
-                  </label>
-                );
-              }
-
-              if (column.data_type === 'text' || column.data_type.includes('json')) {
                 return (
-                  <div key={name} className="md:col-span-2">
+                  <div key={name}>
                     <label className="mb-2 block text-sm font-medium text-[#4E4E4E]">
                       {name}
                       <span className="ml-2 text-xs font-normal text-[#8A8582]">
@@ -2698,40 +2966,35 @@ function EditRecordModal({
                       </span>
                     </label>
 
-                    <textarea
-                      value={
-                        typeof value === 'object' && value !== null
-                          ? JSON.stringify(value, null, 2)
-                          : normalizeInputValue(value)
-                      }
+                    <input
+                      type={inputTypeFromPgType(column.data_type)}
+                      value={normalizeInputValue(value)}
                       disabled={readOnly}
                       onChange={(e) => setForm({ ...form, [name]: e.target.value })}
-                      className="min-h-24 w-full rounded-2xl border border-[#E8E3DF] px-4 py-3 text-sm outline-none focus:border-[#8B0E3F] disabled:bg-[#F3EFEB] disabled:text-[#8A8582]"
+                      className="w-full rounded-2xl border border-[#E8E3DF] px-4 py-3 text-sm outline-none focus:border-[#8B0E3F] disabled:bg-[#F3EFEB] disabled:text-[#8A8582]"
                     />
                   </div>
                 );
-              }
-
-              return (
-                <div key={name}>
-                  <label className="mb-2 block text-sm font-medium text-[#4E4E4E]">
-                    {name}
-                    <span className="ml-2 text-xs font-normal text-[#8A8582]">
-                      {column.data_type}
-                    </span>
-                  </label>
-
-                  <input
-                    type={inputTypeFromPgType(column.data_type)}
-                    value={normalizeInputValue(value)}
-                    disabled={readOnly}
-                    onChange={(e) => setForm({ ...form, [name]: e.target.value })}
-                    className="w-full rounded-2xl border border-[#E8E3DF] px-4 py-3 text-sm outline-none focus:border-[#8B0E3F] disabled:bg-[#F3EFEB] disabled:text-[#8A8582]"
-                  />
-                </div>
-              );
-            })}
+              })}
           </div>
+
+          {payload.table === 'opportunities' ? (
+            <div className="mt-5 rounded-2xl border border-[#E8E3DF] bg-[#F8F7F6] p-4">
+              <div className="text-xs font-medium uppercase tracking-[0.15em] text-[#8A8582]">
+                Marge calculée
+              </div>
+
+              <div className="mt-1 text-2xl font-semibold text-[#8B0E3F]">
+                {opportunityMargin === null
+                  ? '—'
+                  : `${opportunityMargin.toFixed(2)} %`}
+              </div>
+
+              <div className="mt-1 text-xs text-[#8A8582]">
+                ((prix unitaire - coût sous-traitant) / prix unitaire) × 100
+              </div>
+            </div>
+          ) : null}
         </div>
 
         <div className="flex items-center justify-end gap-3 border-t border-[#E8E3DF] px-6 py-4">
@@ -2744,7 +3007,14 @@ function EditRecordModal({
 
           <button
             disabled={saving}
-            onClick={() => onSave(form)}
+            onClick={() =>
+              onSave(
+                form,
+                payload.table === 'opportunities' && payload.mode === 'create'
+                  ? selectedLanguages
+                  : undefined
+              )
+            }
             className="rounded-2xl bg-[#8B0E3F] px-5 py-3 text-sm font-medium text-white hover:bg-[#A0124D] disabled:cursor-not-allowed disabled:opacity-60"
           >
             {saving ? 'Enregistrement...' : 'Enregistrer'}
@@ -2938,6 +3208,13 @@ function OpportunitiesQuickTable({
             <thead className="bg-slate-50 text-slate-500">
               <tr>
                 <SortableHeader
+                  label="ID"
+                  sortKey="id_opportunite"
+                  sortConfig={sortConfig}
+                  onSort={requestSort}
+                />
+
+                <SortableHeader
                   label="Opportunité"
                   sortKey="opportunite"
                   sortConfig={sortConfig}
@@ -2966,8 +3243,8 @@ function OpportunitiesQuickTable({
                 />
 
                 <SortableHeader
-                  label="Probabilité"
-                  sortKey="probabilite"
+                  label="Marge"
+                  sortKey="marge"
                   sortConfig={sortConfig}
                   onSort={requestSort}
                 />
@@ -2991,7 +3268,7 @@ function OpportunitiesQuickTable({
             <tbody>
               {rows.length === 0 ? (
                 <tr>
-                  <td className="px-4 py-8 text-slate-400" colSpan={7}>
+                  <td className="px-4 py-8 text-slate-400" colSpan={8}>
                     Aucune opportunité.
                   </td>
                 </tr>
@@ -3006,17 +3283,31 @@ function OpportunitiesQuickTable({
                       style={getOpportunityRowColors(row)}
                       className="cursor-pointer border-t border-black/5 transition-opacity hover:opacity-90"
                     >
-                      <td className="px-4 py-3">{formatValue(row.opportunite)}</td>
-                      <td className="px-4 py-3">{formatValue(row.compte)}</td>
-                      <td className="px-4 py-3">{formatValue(row.montant)}</td>
+                      <td className="px-4 py-3 font-medium">
+                        #{row.id_opportunite}
+                      </td>
+
+                      <td className="px-4 py-3">
+                        {formatValue(row.opportunite)}
+                      </td>
+
+                      <td className="px-4 py-3">
+                        {formatValue(row.compte)}
+                      </td>
+
+                      <td className="px-4 py-3">
+                        {formatValue(row.montant)}
+                      </td>
 
                       <td className="px-4 py-3">
                         <select
                           value={row.etape || ''}
-                          disabled={saving || !row._stage_column}
+                          disabled={savingRowId === row._id || !row._stage_column}
                           onClick={(e) => e.stopPropagation()}
-                          onChange={(e) => quickUpdateStage(row, e.target.value)}
-                          className="w-full min-w-[150px] rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-indigo-400 disabled:cursor-not-allowed disabled:bg-slate-100"
+                          onChange={(e) =>
+                            quickUpdateStage(row, e.target.value)
+                          }
+                          className="w-full min-w-[150px] rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none"
                         >
                           <option value="">—</option>
 
@@ -3028,9 +3319,21 @@ function OpportunitiesQuickTable({
                         </select>
                       </td>
 
-                      <td className="px-4 py-3">{formatValue(row.probabilite)}</td>
-                      <td className="px-4 py-3">{formatValue(row.langues)}</td>
-                      <td className="px-4 py-3">{formatValue(row.prestation)}</td>
+                      <td className="px-4 py-3 font-semibold">
+                        {row.marge === null ||
+                        row.marge === undefined ||
+                        row.marge === ''
+                          ? '—'
+                          : `${Number(row.marge).toFixed(1)} %`}
+                      </td>
+
+                      <td className="px-4 py-3">
+                        {formatValue(row.langues)}
+                      </td>
+
+                      <td className="px-4 py-3">
+                        {formatValue(row.prestation)}
+                      </td>
                     </tr>
                   );
                 })
@@ -3060,6 +3363,22 @@ export default function App() {
   const [quoteGenerating, setQuoteGenerating] = useState(false);
   const [quoteError, setQuoteError] = useState<string | null>(null);
   const [invoiceToGenerate, setInvoiceToGenerate] = useState<InvoiceRow | null>(null);
+
+  const opportunityLanguageOptions = useMemo(() => {
+    const languages = (payload.opportunities || [])
+      .map((row) => String(row.langues || '').trim())
+      .filter(
+        (value) =>
+          value &&
+          value !== '—'
+      );
+
+    return Array.from(
+      new Set(languages)
+    ).sort((a, b) =>
+      a.localeCompare(b, 'fr')
+    );
+  }, [payload.opportunities]);
 
   async function openRecord(row: EntityRow) {
     if (!auth?.token) return;
@@ -3131,15 +3450,93 @@ export default function App() {
     }
   }
 
-  async function saveRecord(values: Record<string, any>) {
+  async function saveRecord(
+    values: Record<string, any>,
+    languages?: string[]
+  ) {
     if (!auth?.token || !modalPayload) return;
 
     setModalSaving(true);
     setModalError(null);
 
     try {
+      if (
+        modalPayload.mode === 'create' &&
+        modalPayload.table === 'opportunities'
+      ) {
+        const languageConfig = getOpportunityLanguageConfig(
+          modalPayload.columns
+        );
+
+        if (!languageConfig) {
+          throw new Error(
+            "Aucune colonne de langue compatible n'a été trouvée dans la table opportunities."
+          );
+        }
+
+        if (!languages || languages.length === 0) {
+          throw new Error(
+            'Sélectionne au moins une langue avant de créer l’opportunité.'
+          );
+        }
+
+        const createdRecords: Record<string, any>[] = [];
+
+        for (const language of languages) {
+          const record: Record<string, any> = {
+            ...values,
+          };
+
+          if (languageConfig.type === 'single') {
+            record[languageConfig.column] = language;
+          } else {
+            const pair = splitOpportunityLanguagePair(language);
+
+            record[languageConfig.sourceColumn] = pair.source || null;
+            record[languageConfig.targetColumn] = pair.target || null;
+          }
+
+          const created = await api<
+            Partial<RecordModalPayload> & {
+              record: Record<string, any>;
+            }
+          >(
+            '/records/opportunities',
+            {
+              method: 'POST',
+              body: JSON.stringify(record),
+            },
+            auth.token,
+            setAuth
+          );
+
+          if (created.record) {
+            createdRecords.push(created.record);
+          }
+        }
+
+        await refreshData();
+
+        if (createdRecords.length === 1) {
+          setModalPayload({
+            mode: 'edit',
+            table: 'opportunities',
+            columns: modalPayload.columns,
+            record: createdRecords[0],
+          });
+        } else {
+          setModalPayload(null);
+        }
+
+        return;
+      }
+
       if (modalPayload.mode === 'create') {
-        const created = await api<Partial<RecordModalPayload> & { record: Record<string, any> }>(
+        const created = await api<
+          Partial<RecordModalPayload> & {
+            record: Record<string, any>;
+          }
+        >(
           `/records/${modalPayload.table}`,
           {
             method: 'POST',
@@ -3160,7 +3557,11 @@ export default function App() {
         return;
       }
 
-      const updated = await api<Partial<RecordModalPayload> & { record: Record<string, any> }>(
+      const updated = await api<
+        Partial<RecordModalPayload> & {
+          record: Record<string, any>;
+        }
+      >(
         `/records/${modalPayload.table}/${modalPayload.record.id}`,
         {
           method: 'PATCH',
@@ -3179,7 +3580,11 @@ export default function App() {
 
       await refreshData();
     } catch (err) {
-      setModalError(err instanceof Error ? err.message : 'Enregistrement impossible');
+      setModalError(
+        err instanceof Error
+          ? err.message
+          : 'Enregistrement impossible'
+      );
     } finally {
       setModalSaving(false);
     }
@@ -3522,6 +3927,7 @@ export default function App() {
           saving={modalSaving}
           error={modalError}
           token={auth.token}
+          opportunityLanguageOptions={opportunityLanguageOptions}
           onClose={() => {
             setModalPayload(null);
             setModalError(null);

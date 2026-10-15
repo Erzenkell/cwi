@@ -194,6 +194,239 @@ function normalizeValue(value) {
   return value;
 }
 
+function splitClientName(fullName) {
+  const parts = String(fullName || '')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+
+  if (parts.length === 0) {
+    return {
+      firstName: '',
+      lastName: '',
+    };
+  }
+
+  if (parts.length === 1) {
+    return {
+      firstName: parts[0],
+      lastName: '',
+    };
+  }
+
+  return {
+    firstName: parts[0],
+    lastName: parts.slice(1).join(' '),
+  };
+}
+
+async function createPrimaryContactForAccount(
+  req,
+  accountId,
+  clientName,
+  companyName
+) {
+  const cleanName = String(clientName || '').trim();
+
+  if (!accountId || !cleanName) {
+    return null;
+  }
+
+  if (
+    !(await hasTable('contacts')) ||
+    !(await hasTable('account_contacts'))
+  ) {
+    return null;
+  }
+
+  const contactColumns = await getColumns('contacts');
+
+  const contactColumnNames = contactColumns.map(
+    (column) => column.column_name
+  );
+
+  const {
+    firstName,
+    lastName,
+  } = splitClientName(cleanName);
+
+  const contactPayload = {};
+
+  if (contactColumnNames.includes('first_name')) {
+    contactPayload.first_name = firstName;
+  }
+
+  if (contactColumnNames.includes('last_name')) {
+    contactPayload.last_name = lastName;
+  }
+
+  /*
+   * Certaines versions du dump peuvent avoir
+   * une seule colonne name/full_name.
+   */
+  if (
+    !contactColumnNames.includes('first_name') &&
+    !contactColumnNames.includes('last_name')
+  ) {
+    if (contactColumnNames.includes('name')) {
+      contactPayload.name = cleanName;
+    } else if (contactColumnNames.includes('full_name')) {
+      contactPayload.full_name = cleanName;
+    }
+  }
+
+  if (
+    companyName &&
+    contactColumnNames.includes('company')
+  ) {
+    contactPayload.company = companyName;
+  }
+
+  const contactWithDefaults = await applyCreateDefaults(
+    'contacts',
+    contactPayload,
+    contactColumnNames,
+    req
+  );
+
+  const forbiddenColumns = new Set([
+    'id',
+    'created_at',
+    'updated_at',
+    'deleted_at',
+    'password',
+    'password_hash',
+    'encrypted_password',
+    'reset_password_token',
+    'remember_token',
+    'confirmation_token',
+  ]);
+
+  const entries = Object.entries(contactWithDefaults)
+    .filter(([key]) =>
+      contactColumnNames.includes(key)
+    )
+    .filter(([key]) =>
+      !forbiddenColumns.has(key)
+    )
+    .filter(([, value]) =>
+      !isEmptyCreateValue(value)
+    );
+
+  if (entries.length === 0) {
+    return null;
+  }
+
+  const insertColumns =
+    entries.map(([key]) => key);
+
+  const placeholders =
+    entries.map(
+      (_, index) => `$${index + 1}`
+    );
+
+  const values =
+    entries.map(
+      ([, value]) => normalizeValue(value)
+    );
+
+  const contactResult = await query(
+    `
+    INSERT INTO contacts (
+      ${insertColumns.join(', ')}
+    )
+    VALUES (
+      ${placeholders.join(', ')}
+    )
+    RETURNING *
+    `,
+    values
+  );
+
+  const contact = contactResult.rows[0];
+
+  if (!contact?.id) {
+    return null;
+  }
+
+  /*
+   * Création de la relation compte/contact.
+   */
+  const relationColumns =
+    await getColumns('account_contacts');
+
+  const relationColumnNames =
+    relationColumns.map(
+      (column) => column.column_name
+    );
+
+  if (
+    !relationColumnNames.includes('account_id') ||
+    !relationColumnNames.includes('contact_id')
+  ) {
+    return contact.id;
+  }
+
+  const relationPayload =
+    await applyCreateDefaults(
+      'account_contacts',
+      {
+        account_id: accountId,
+        contact_id: contact.id,
+      },
+      relationColumnNames,
+      req
+    );
+
+  const relationEntries =
+    Object.entries(relationPayload)
+      .filter(([key]) =>
+        relationColumnNames.includes(key)
+      )
+      .filter(([key]) =>
+        key !== 'id'
+      )
+      .filter(([, value]) =>
+        !isEmptyCreateValue(value)
+      );
+
+  const relationInsertColumns =
+    relationEntries.map(([key]) => key);
+
+  const relationPlaceholders =
+    relationEntries.map(
+      (_, index) => `$${index + 1}`
+    );
+
+  const relationValues =
+    relationEntries.map(
+      ([, value]) => normalizeValue(value)
+    );
+
+  await query(
+    `
+    INSERT INTO account_contacts (
+      ${relationInsertColumns.join(', ')}
+    )
+    VALUES (
+      ${relationPlaceholders.join(', ')}
+    )
+    `,
+    relationValues
+  );
+
+  await createAuditLog({
+    req,
+    action: 'create',
+    entity: 'contacts',
+    entityId: contact.id,
+    beforeData: null,
+    afterData: contact,
+  });
+
+  return contact.id;
+}
+
 router.get('/options/users', async (_req, res) => {
   try {
     const tableExists = await hasTable('users');
@@ -423,6 +656,30 @@ router.post('/:entity', async (req, res) => {
     const columns = await getColumns(tableName);
     const columnNames = columns.map((c) => c.column_name);
 
+    const accountClientName =
+      tableName === 'accounts'
+        ? String(
+            req.body?._client_name || ''
+          ).trim()
+        : '';
+
+    const accountCompanyName =
+      tableName === 'accounts'
+        ? String(
+            req.body?._company_name || ''
+          ).trim()
+        : '';
+
+    if (
+      tableName === 'accounts' &&
+      (!accountClientName || !accountCompanyName)
+    ) {
+      return res.status(400).json({
+        message:
+          'Le nom client et le nom de l’entreprise sont obligatoires.',
+      });
+    }
+
     const forbiddenColumns = new Set([
       'id',
       'created_at',
@@ -444,6 +701,34 @@ router.post('/:entity', async (req, res) => {
       if (isEmptyCreateValue(value)) continue;
 
       rawPayload[key] = normalizeValue(value);
+    }
+
+    /*
+    * Transformation du champ frontend
+    * "_company_name" vers une vraie colonne PostgreSQL.
+    */
+    if (
+      tableName === 'accounts' &&
+      accountCompanyName
+    ) {
+      const companyColumn = [
+        'name',
+        'company',
+        'account_name',
+        'company_name',
+      ].find((column) =>
+        columnNames.includes(column)
+      );
+
+      if (!companyColumn) {
+        return res.status(400).json({
+          message:
+            "Impossible d'enregistrer le nom de l’entreprise : aucune colonne compatible dans accounts.",
+        });
+      }
+
+      rawPayload[companyColumn] =
+        accountCompanyName;
     }
 
     const payload = await applyCreateDefaults(
@@ -480,10 +765,30 @@ router.post('/:entity', async (req, res) => {
       afterData: result.rows[0],
     });
 
+    let primaryContactId = null;
+
+    if (
+      tableName === 'accounts' &&
+      accountClientName
+    ) {
+      primaryContactId =
+        await createPrimaryContactForAccount(
+          req,
+          result.rows[0]?.id,
+          accountClientName,
+          accountCompanyName
+        );
+    }
+
     res.status(201).json({
       table: tableName,
       columns,
       record: result.rows[0],
+      ...(primaryContactId
+        ? {
+            primaryContactId,
+          }
+        : {}),
     });
   } catch (err) {
     console.error(err);

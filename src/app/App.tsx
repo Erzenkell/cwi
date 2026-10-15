@@ -155,17 +155,19 @@ const tabMeta: Record<Tab, { title: string; subtitle: string; columns: string[] 
   COMPTES: {
     title: 'Comptes',
     subtitle: 'Comptes issus de la table accounts.',
-    columns: ['Nom', 'Catégorie', 'Email', 'Téléphone', 'Localisation', 'Note'],
-  },
-  CONTACTS: {
-    title: 'Contacts',
-    subtitle: 'Contacts rattachés aux comptes via account_contacts.',
-    columns: ['Nom', 'Compte', 'Email', 'Téléphone', 'Fonction', 'Localisation'],
+    columns: [
+      'Nom',
+      'Catégorie',
+      'Email',
+      'Téléphone',
+      'Localisation',
+    ],
   },
   'OPPORTUNITÉS': {
     title: 'Opportunités',
     subtitle: 'Suivi des opportunités commerciales.',
     columns: [
+      'Langues',
       'ID',
       'Campaign ID',
       'Opportunité',
@@ -173,9 +175,13 @@ const tabMeta: Record<Tab, { title: string; subtitle: string; columns: string[] 
       'Montant',
       'Étape',
       'Marge',
-      'Langues',
       'Prestation',
     ],
+  },
+  CONTACTS: {
+    title: 'Contacts',
+    subtitle: 'Contacts rattachés aux comptes via account_contacts.',
+    columns: ['Nom', 'Compte', 'Email', 'Téléphone', 'Fonction', 'Localisation'],
   },
   'SOUS-TRAITANT': {
     title: 'Sous-traitants',
@@ -253,15 +259,21 @@ const GLOBAL_EDIT_HIDDEN_FIELDS = new Set([
   'old_uniqueid',
 ]);
 
+const ACCOUNT_EDIT_HIDDEN_FIELDS = new Set([
+  'rating',
+  'score',
+]);
+
 const OPPORTUNITY_EDIT_HIDDEN_FIELDS = new Set([
   'access',
   'currency',
   'close_on',
   'closes_on',
   'subcontract_unit_price',
+  'probability',
   'subscribed_users',
   'user_id',
-  'campaign_id'
+  'campaign_id',
 ]);
 
 const CREATE_HIDDEN_FIELDS = new Set([
@@ -316,6 +328,9 @@ const CREATE_VISIBLE_FIELDS: Record<string, string[]> = {
 
   accounts: [
     'name',
+    'company',
+    'company_name',
+    'account_name',
     'email',
     'phone',
     'toll_free_phone',
@@ -323,7 +338,6 @@ const CREATE_VISIBLE_FIELDS: Record<string, string[]> = {
     'address',
     'city',
     'country',
-    'rating',
     'assigned_to',
   ],
 
@@ -426,9 +440,32 @@ function shouldShowColumnInModal(
   }
 
   if (
+    payload.table === 'accounts' &&
+    payload.mode === 'edit' &&
+    ACCOUNT_EDIT_HIDDEN_FIELDS.has(columnName)
+  ) {
+    return false;
+  }
+
+  if (
     payload.table === 'opportunities' &&
     payload.mode === 'edit' &&
     OPPORTUNITY_EDIT_HIDDEN_FIELDS.has(columnName)
+  ) {
+    return false;
+  }
+
+  if (
+    payload.table === 'accounts' &&
+    payload.mode === 'create' &&
+    [
+      'name',
+      'company',
+      'company_name',
+      'account_name',
+      'client_name',
+      'customer_name',
+    ].includes(columnName)
   ) {
     return false;
   }
@@ -440,6 +477,10 @@ function shouldShowColumnInModal(
     return false;
   }
 
+  /*
+   * Les langues des opportunités sont gérées
+   * par le sélecteur multiple dédié.
+   */
   if (
     payload.table === 'opportunities' &&
     payload.mode === 'create' &&
@@ -465,6 +506,11 @@ function buildCreateInitialRecord(
   const initialRecord: Record<string, any> = {};
   const columnNames = new Set(columns.map((column) => column.column_name));
   const today = new Date().toISOString().slice(0, 10);
+
+  if (table === 'accounts') {
+    initialRecord._client_name = '';
+    initialRecord._company_name = '';
+  }
 
   if (columnNames.has('user_id')) {
     initialRecord.user_id = user.id;
@@ -3012,6 +3058,60 @@ function EditRecordModal({
               })}
           </div>
 
+          {payload.table === 'accounts' && payload.mode === 'create' ? (
+            <div className="mb-5 rounded-3xl border border-[#E8E3DF] bg-white p-5">
+              <div>
+                <h3 className="text-base font-semibold text-[#2F2F2F]">
+                  Identité du compte
+                </h3>
+
+                <p className="mt-1 text-sm text-[#8A8582]">
+                  Le client sera créé comme contact principal et rattaché au compte.
+                </p>
+              </div>
+
+              <div className="mt-4 grid gap-4 md:grid-cols-2">
+                <div>
+                  <label className="mb-2 block text-sm font-medium text-[#4E4E4E]">
+                    Nom client
+                  </label>
+
+                  <input
+                    value={String(form._client_name || '')}
+                    onChange={(e) =>
+                      setForm({
+                        ...form,
+                        _client_name: e.target.value,
+                      })
+                    }
+                    placeholder="Ex : Jean Dupont"
+                    className="w-full rounded-2xl border border-[#E8E3DF] px-4 py-3 text-sm outline-none focus:border-[#8B0E3F]"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="mb-2 block text-sm font-medium text-[#4E4E4E]">
+                    Nom de l’entreprise
+                  </label>
+
+                  <input
+                    value={String(form._company_name || '')}
+                    onChange={(e) =>
+                      setForm({
+                        ...form,
+                        _company_name: e.target.value,
+                      })
+                    }
+                    placeholder="Ex : CHANEL"
+                    className="w-full rounded-2xl border border-[#E8E3DF] px-4 py-3 text-sm outline-none focus:border-[#8B0E3F]"
+                    required
+                  />
+                </div>
+              </div>
+            </div>
+          ) : null}
+
           {payload.table === 'opportunities' ? (
             <div className="mt-5 rounded-2xl border border-[#E8E3DF] bg-[#F8F7F6] p-4">
               <div className="text-xs font-medium uppercase tracking-[0.15em] text-[#8A8582]">
@@ -3242,6 +3342,13 @@ function OpportunitiesQuickTable({
             <thead className="bg-slate-50 text-slate-500">
               <tr>
                 <SortableHeader
+                  label="Langues"
+                  sortKey="langues"
+                  sortConfig={sortConfig}
+                  onSort={requestSort}
+                />
+
+                <SortableHeader
                   label="ID"
                   sortKey="id_opportunite"
                   sortConfig={sortConfig}
@@ -3291,13 +3398,6 @@ function OpportunitiesQuickTable({
                 />
 
                 <SortableHeader
-                  label="Langues"
-                  sortKey="langues"
-                  sortConfig={sortConfig}
-                  onSort={requestSort}
-                />
-
-                <SortableHeader
                   label="Prestation"
                   sortKey="prestation"
                   sortConfig={sortConfig}
@@ -3309,7 +3409,7 @@ function OpportunitiesQuickTable({
             <tbody>
               {rows.length === 0 ? (
                 <tr>
-                  <td className="px-4 py-8 text-slate-400" colSpan={8}>
+                  <td className="px-4 py-8 text-slate-400" colSpan={9}>
                     Aucune opportunité.
                   </td>
                 </tr>
@@ -3324,6 +3424,11 @@ function OpportunitiesQuickTable({
                       style={getOpportunityRowColors(row)}
                       className="cursor-pointer border-t border-black/5 transition-opacity hover:opacity-90"
                     >
+
+                      <td className="px-4 py-3 font-medium">
+                        {formatValue(row.langues)}
+                      </td>
+
                       <td className="px-4 py-3 font-medium">
                         #{row.id_opportunite}
                       </td>
@@ -3370,10 +3475,6 @@ function OpportunitiesQuickTable({
                         row.marge === ''
                           ? '—'
                           : `${Number(row.marge).toFixed(1)} %`}
-                      </td>
-
-                      <td className="px-4 py-3">
-                        {formatValue(row.langues)}
                       </td>
 
                       <td className="px-4 py-3">

@@ -418,7 +418,7 @@ async function invoicesView() {
 
   const referenceExpr =
     invoiceYear && invoiceNumber
-      ? `CONCAT(COALESCE(ai.${invoiceYear}::text, '—'), '-', COALESCE(ai.${invoiceNumber}::text, ai.id::text))`
+      ? `CASE WHEN ai.${invoiceNumber}::text ~ '^[0-9]{4}-[0-9]+$' THEN ai.${invoiceNumber}::text ELSE CONCAT(COALESCE(ai.${invoiceYear}::text, '—'), '-', COALESCE(ai.${invoiceNumber}::text, ai.id::text)) END`
       : textExpr('ai', ai, ['invoice_number', 'number', 'reference', 'id']);
 
   const statusExpr = paidColumn

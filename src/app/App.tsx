@@ -351,6 +351,10 @@ function shouldShowColumnInModal(
   columnName: string
 ) {
   if (payload.mode === 'create') {
+    if (['abstract_invoices', 'invoices'].includes(payload.table) &&
+        ['invoice_number', 'number', 'reference', 'invoice_year', 'year'].includes(columnName)) {
+      return false;
+    }
     const visibleFields = CREATE_VISIBLE_FIELDS[payload.table];
     if (visibleFields && !visibleFields.includes(columnName)) {
       return false;

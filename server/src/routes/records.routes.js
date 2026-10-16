@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { authenticate } from '../auth.js';
-import { query } from '../db.js';
+import { pool, query } from '../db.js';
+import { nextInvoiceNumber } from '../modules/invoices/invoice-number.service.js';
 import crypto from 'crypto';
 
 import { createAuditLog } from '../audit.js';
@@ -647,6 +648,7 @@ router.patch('/:entity/:id', async (req, res) => {
 });
 
 router.post('/:entity', async (req, res) => {
+  let invoiceClient;
   try {
     const tableName = resolveTable(req.params.entity);
 
@@ -739,6 +741,48 @@ router.post('/:entity', async (req, res) => {
       req
     );
 
+    if (tableName === 'abstract_invoices' || tableName === 'invoices') {
+      invoiceClient = await pool.connect();
+      await invoiceClient.query('BEGIN');
+      if (tableName === 'invoices') {
+        payload.invoice_number = await nextInvoiceNumber(invoiceClient);
+      } else {
+        // Serialize numbering with insertion, including concurrent creations.
+        await invoiceClient.query('LOCK TABLE abstract_invoices IN EXCLUSIVE MODE');
+        const year = Number(new Intl.DateTimeFormat('en', {
+          year: 'numeric', timeZone: 'Europe/Paris',
+        }).format(new Date()));
+        const numberColumn = ['invoice_number', 'number', 'reference']
+          .find((name) => columnNames.includes(name));
+        const yearColumn = ['invoice_year', 'year']
+          .find((name) => columnNames.includes(name));
+        if (!numberColumn) throw new Error('Colonne de reference de facture introuvable');
+        const numericColumn = columns.some((column) =>
+          column.column_name === numberColumn &&
+          ['smallint', 'integer', 'bigint', 'numeric'].includes(column.data_type)
+        );
+        if (numericColumn && !yearColumn) {
+          throw new Error('Colonne annee de facture introuvable');
+        }
+        const result = await invoiceClient.query(`
+          SELECT COALESCE(MAX(
+            CASE
+              WHEN ${numberColumn}::text ~ '^[0-9]+$'
+                ${yearColumn ? `AND ${yearColumn}::text = $1` : 'AND FALSE'}
+                THEN ${numberColumn}::text::bigint
+              WHEN ${numberColumn}::text ~ ('^' || $1 || '-[0-9]+$')
+                THEN split_part(${numberColumn}::text, '-', 2)::bigint
+              ELSE 0
+            END
+          ), 0) + 1 AS next_number
+          FROM abstract_invoices
+        `, [String(year)]);
+        const next = result.rows[0].next_number;
+        payload[numberColumn] = numericColumn ? next : `${year}-${next}`;
+        if (yearColumn) payload[yearColumn] = year;
+      }
+    }
+
     const entries = Object.entries(payload)
       .filter(([key]) => columnNames.includes(key))
       .filter(([key]) => !forbiddenColumns.has(key))
@@ -748,7 +792,7 @@ router.post('/:entity', async (req, res) => {
     const placeholders = entries.map((_, index) => `$${index + 1}`);
     const values = entries.map(([, value]) => normalizeValue(value));
 
-    const result = await query(
+    const result = await (invoiceClient || { query }).query(
       `
       INSERT INTO ${tableName} (${insertColumns.join(', ')})
       VALUES (${placeholders.join(', ')})
@@ -756,6 +800,8 @@ router.post('/:entity', async (req, res) => {
       `,
       values
     );
+
+    if (invoiceClient) await invoiceClient.query('COMMIT');
 
     await createAuditLog({
       req,
@@ -792,8 +838,11 @@ router.post('/:entity', async (req, res) => {
         : {}),
     });
   } catch (err) {
+    if (invoiceClient) await invoiceClient.query('ROLLBACK');
     console.error(err);
     res.status(500).json({ message: err.message || 'Erreur création enregistrement' });
+  } finally {
+    invoiceClient?.release();
   }
 });
 

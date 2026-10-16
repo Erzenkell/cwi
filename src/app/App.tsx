@@ -2640,6 +2640,7 @@ type RecordModalPayload = {
 function isReadOnlyColumn(column: string) {
   return [
     'id',
+    'lead_id',
     'created_at',
     'updated_at',
     'deleted_at',

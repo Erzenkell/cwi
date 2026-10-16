@@ -572,6 +572,7 @@ router.patch('/:entity/:id', async (req, res) => {
 
     const forbiddenColumns = new Set([
       'id',
+      'lead_id',
       'created_at',
       'updated_at',
       'deleted_at',

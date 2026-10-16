@@ -1,5 +1,3 @@
-import { query } from '../../db.js';
-
 export async function nextInvoiceNumber(client) {
   const year = new Date().getFullYear();
 
@@ -22,6 +20,5 @@ export async function nextInvoiceNumber(client) {
     [year]
   );
 
-  const seq = String(result.rows[0].current_value).padStart(4, '0');
-  return `FAC-${year}-${seq}`;
+  return `${year}-${result.rows[0].current_value}`;
 }

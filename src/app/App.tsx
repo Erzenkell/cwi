@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type ComponentType, type ReactNode, type FormEvent } from 'react';
+import { getFieldLabel } from './lib/fieldLabels';
 import {
   Bell,
   BriefcaseBusiness,
@@ -156,17 +157,19 @@ const tabMeta: Record<Tab, { title: string; subtitle: string; columns: string[] 
   COMPTES: {
     title: 'Comptes',
     subtitle: 'Comptes issus de la table accounts.',
-    columns: ['Nom', 'Catégorie', 'Email', 'Téléphone', 'Localisation', 'Note'],
-  },
-  CONTACTS: {
-    title: 'Contacts',
-    subtitle: 'Contacts rattachés aux comptes via account_contacts.',
-    columns: ['Nom', 'Compte', 'Email', 'Téléphone', 'Fonction', 'Localisation'],
+    columns: [
+      'Nom',
+      'Catégorie',
+      'Email',
+      'Téléphone',
+      'Localisation',
+    ],
   },
   'OPPORTUNITÉS': {
     title: 'Opportunités',
     subtitle: 'Suivi des opportunités commerciales.',
     columns: [
+      'Langues',
       'ID',
       'Campaign ID',
       'Opportunité',
@@ -174,9 +177,13 @@ const tabMeta: Record<Tab, { title: string; subtitle: string; columns: string[] 
       'Montant',
       'Étape',
       'Marge',
-      'Langues',
       'Prestation',
     ],
+  },
+  CONTACTS: {
+    title: 'Contacts',
+    subtitle: 'Contacts rattachés aux comptes via account_contacts.',
+    columns: ['Nom', 'Compte', 'Email', 'Téléphone', 'Fonction', 'Localisation'],
   },
   'SOUS-TRAITANT': {
     title: 'Sous-traitants',
@@ -254,15 +261,21 @@ const GLOBAL_EDIT_HIDDEN_FIELDS = new Set([
   'old_uniqueid',
 ]);
 
+const ACCOUNT_EDIT_HIDDEN_FIELDS = new Set([
+  'rating',
+  'score',
+]);
+
 const OPPORTUNITY_EDIT_HIDDEN_FIELDS = new Set([
   'access',
   'currency',
   'close_on',
   'closes_on',
   'subcontract_unit_price',
+  'probability',
   'subscribed_users',
   'user_id',
-  'campaign_id'
+  'campaign_id',
 ]);
 
 const CREATE_HIDDEN_FIELDS = new Set([
@@ -280,125 +293,48 @@ const CREATE_HIDDEN_FIELDS = new Set([
   'lock_version',
 ]);
 
+// Source fields for the values displayed in each view.
+// Margin uses both prices; languages and account identity have dedicated controls.
 const CREATE_VISIBLE_FIELDS: Record<string, string[]> = {
   leads: [
-    'first_name',
-    'last_name',
-    'company',
-    'title',
-    'source',
-    'email',
-    'alt_email',
-    'phone',
-    'mobile',
-    'linkedin',
-    'website',
-    'description',
-    'notes',
-    'assigned_to',
+    'first_name', 'last_name', 'company', 'source', 'email', 'phone', 'rating', 'score',
   ],
-
   contacts: [
-    'first_name',
-    'last_name',
-    'company',
-    'title',
-    'department',
-    'email',
-    'alt_email',
-    'phone',
-    'mobile',
-    'linkedin',
-    'address',
-    'city',
-    'country',
-    'assigned_to',
+    'first_name', 'last_name', 'name', 'account_id',
+    'email', 'alt_email', 'email_address',
+    'phone', 'mobile', 'alt_phone', 'telephone',
+    'title', 'job_title', 'role', 'department', 'position',
+    'location', 'city', 'address',
   ],
-
   accounts: [
-    'name',
-    'email',
-    'phone',
-    'toll_free_phone',
-    'website',
-    'address',
-    'city',
-    'country',
-    'rating',
-    'assigned_to',
+    'name', 'company', 'company_name', 'account_name',
+    'category', 'sector', 'industry', 'account_type', 'type',
+    'email', 'email_address', 'phone', 'toll_free_phone', 'mobile', 'telephone',
+    'location', 'city', 'address', 'billing_address',
   ],
-
   opportunities: [
-    'name',
-    'subject',
-    'amount',
-    'budget',
-    'stage',
-    'probability',
-    'unit_price',
-    'subcontract_unit_price',
-    'in_date',
-    'out_date',
-    'task_type',
-    'service_type',
-    'description',
-    'notes',
-    'assigned_to',
+    'campaign_id', 'name', 'label', 'title', 'subject', 'account_id',
+    'amount', 'value', 'value_eur', 'revenue', 'budget', 'stage',
+    'unit_price', 'subcontract_unit_price',
+    'task_type', 'service_type', 'type', 'category',
   ],
-
   suppliers: [
-    'first_name',
-    'last_name',
-    'name',
-    'company',
-    'email',
-    'phone',
-    'mobile',
-    'specialty',
-    'speciality',
-    'skills',
-    'address',
-    'city',
-    'country',
+    'first_name', 'last_name', 'name', 'company', 'company_name', 'business_name',
+    'email', 'alt_email', 'email_address', 'phone', 'alt_phone', 'mobile', 'telephone',
+    'location', 'city', 'address', 'country',
+    'specialty', 'speciality', 'skills', 'service_type',
   ],
-
   subcontractors: [
-    'first_name',
-    'last_name',
-    'name',
-    'company',
-    'email',
-    'phone',
-    'mobile',
-    'specialty',
-    'speciality',
-    'skills',
-    'address',
-    'city',
-    'country',
+    'first_name', 'last_name', 'name', 'company', 'company_name', 'business_name',
+    'email', 'alt_email', 'email_address', 'phone', 'alt_phone', 'mobile', 'telephone',
+    'location', 'city', 'address', 'country',
+    'specialty', 'speciality', 'skills', 'service_type',
   ],
-
   abstract_invoices: [
-    'account_id',
-    'invoice_number',
-    'amount',
-    'vat',
-    'due_date',
-    'sent_date',
-    'payment_date',
-    'paid',
-    'description',
-    'notes',
+    'account_id', 'invoice_number', 'amount', 'vat', 'sent_date', 'payment_date', 'paid',
   ],
-
   invoices: [
-    'customer_name',
-    'customer_siret',
-    'customer_address',
-    'issue_date',
-    'due_date',
-    'total_ttc',
-    'notes',
+    'customer_name', 'invoice_number', 'total_ttc', 'vat', 'sent_date', 'payment_date', 'paid',
   ],
 };
 
@@ -415,6 +351,17 @@ function shouldShowColumnInModal(
   payload: RecordModalPayload,
   columnName: string
 ) {
+  if (payload.mode === 'create') {
+    if (['abstract_invoices', 'invoices'].includes(payload.table) &&
+        ['invoice_number', 'number', 'reference', 'invoice_year', 'year'].includes(columnName)) {
+      return false;
+    }
+    const visibleFields = CREATE_VISIBLE_FIELDS[payload.table];
+    if (visibleFields && !visibleFields.includes(columnName)) {
+      return false;
+    }
+  }
+
   if (TECHNICAL_FIELDS.has(columnName)) {
     return false;
   }
@@ -422,6 +369,14 @@ function shouldShowColumnInModal(
   if (
     payload.mode === 'edit' &&
     GLOBAL_EDIT_HIDDEN_FIELDS.has(columnName)
+  ) {
+    return false;
+  }
+
+  if (
+    payload.table === 'accounts' &&
+    payload.mode === 'edit' &&
+    ACCOUNT_EDIT_HIDDEN_FIELDS.has(columnName)
   ) {
     return false;
   }
@@ -435,12 +390,31 @@ function shouldShowColumnInModal(
   }
 
   if (
+    payload.table === 'accounts' &&
+    payload.mode === 'create' &&
+    [
+      'name',
+      'company',
+      'company_name',
+      'account_name',
+      'client_name',
+      'customer_name',
+    ].includes(columnName)
+  ) {
+    return false;
+  }
+
+  if (
     payload.mode === 'create' &&
     CREATE_HIDDEN_FIELDS.has(columnName)
   ) {
     return false;
   }
 
+  /*
+   * Les langues des opportunités sont gérées
+   * par le sélecteur multiple dédié.
+   */
   if (
     payload.table === 'opportunities' &&
     payload.mode === 'create' &&
@@ -466,6 +440,11 @@ function buildCreateInitialRecord(
   const initialRecord: Record<string, any> = {};
   const columnNames = new Set(columns.map((column) => column.column_name));
   const today = new Date().toISOString().slice(0, 10);
+
+  if (table === 'accounts') {
+    initialRecord._client_name = '';
+    initialRecord._company_name = '';
+  }
 
   if (columnNames.has('user_id')) {
     initialRecord.user_id = user.id;
@@ -503,16 +482,10 @@ function buildCreateInitialRecord(
     initialRecord.date = today;
   }
 
-  const visibleFields = CREATE_VISIBLE_FIELDS[table];
-
   for (const column of columns) {
     const name = column.column_name;
 
     if (!shouldShowColumnInModal({ mode: 'create', table, columns, record: initialRecord }, name)) {
-      continue;
-    }
-
-    if (visibleFields && !visibleFields.includes(name)) {
       continue;
     }
 
@@ -2620,6 +2593,7 @@ type RecordModalPayload = {
 function isReadOnlyColumn(column: string) {
   return [
     'id',
+    'lead_id',
     'created_at',
     'updated_at',
     'deleted_at',
@@ -2985,7 +2959,7 @@ function EditRecordModal({
                       className="flex items-center justify-between rounded-2xl border border-[#E8E3DF] p-4"
                     >
                       <div>
-                        <div className="font-medium text-[#2F2F2F]">{name}</div>
+                        <div className="font-medium text-[#2F2F2F]">{getFieldLabel(name)}</div>
                         <div className="text-xs text-[#8A8582]">{column.data_type}</div>
                       </div>
 
@@ -3003,7 +2977,7 @@ function EditRecordModal({
                   return (
                     <div key={name} className="md:col-span-2">
                       <label className="mb-2 block text-sm font-medium text-[#4E4E4E]">
-                        {name}
+                        {getFieldLabel(name)}
                         <span className="ml-2 text-xs font-normal text-[#8A8582]">
                           {column.data_type}
                         </span>
@@ -3026,7 +3000,7 @@ function EditRecordModal({
                 return (
                   <div key={name}>
                     <label className="mb-2 block text-sm font-medium text-[#4E4E4E]">
-                      {name}
+                      {getFieldLabel(name)}
                       <span className="ml-2 text-xs font-normal text-[#8A8582]">
                         {column.data_type}
                       </span>
@@ -3043,6 +3017,60 @@ function EditRecordModal({
                 );
               })}
           </div>
+
+          {payload.table === 'accounts' && payload.mode === 'create' ? (
+            <div className="mb-5 rounded-3xl border border-[#E8E3DF] bg-white p-5">
+              <div>
+                <h3 className="text-base font-semibold text-[#2F2F2F]">
+                  Identité du compte
+                </h3>
+
+                <p className="mt-1 text-sm text-[#8A8582]">
+                  Le client sera créé comme contact principal et rattaché au compte.
+                </p>
+              </div>
+
+              <div className="mt-4 grid gap-4 md:grid-cols-2">
+                <div>
+                  <label className="mb-2 block text-sm font-medium text-[#4E4E4E]">
+                    Nom client
+                  </label>
+
+                  <input
+                    value={String(form._client_name || '')}
+                    onChange={(e) =>
+                      setForm({
+                        ...form,
+                        _client_name: e.target.value,
+                      })
+                    }
+                    placeholder="Ex : Jean Dupont"
+                    className="w-full rounded-2xl border border-[#E8E3DF] px-4 py-3 text-sm outline-none focus:border-[#8B0E3F]"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="mb-2 block text-sm font-medium text-[#4E4E4E]">
+                    Nom de l’entreprise
+                  </label>
+
+                  <input
+                    value={String(form._company_name || '')}
+                    onChange={(e) =>
+                      setForm({
+                        ...form,
+                        _company_name: e.target.value,
+                      })
+                    }
+                    placeholder="Ex : CHANEL"
+                    className="w-full rounded-2xl border border-[#E8E3DF] px-4 py-3 text-sm outline-none focus:border-[#8B0E3F]"
+                    required
+                  />
+                </div>
+              </div>
+            </div>
+          ) : null}
 
           {payload.table === 'opportunities' ? (
             <div className="mt-5 rounded-2xl border border-[#E8E3DF] bg-[#F8F7F6] p-4">
@@ -3274,6 +3302,13 @@ function OpportunitiesQuickTable({
             <thead className="bg-slate-50 text-slate-500">
               <tr>
                 <SortableHeader
+                  label="Langues"
+                  sortKey="langues"
+                  sortConfig={sortConfig}
+                  onSort={requestSort}
+                />
+
+                <SortableHeader
                   label="ID"
                   sortKey="id_opportunite"
                   sortConfig={sortConfig}
@@ -3323,13 +3358,6 @@ function OpportunitiesQuickTable({
                 />
 
                 <SortableHeader
-                  label="Langues"
-                  sortKey="langues"
-                  sortConfig={sortConfig}
-                  onSort={requestSort}
-                />
-
-                <SortableHeader
                   label="Prestation"
                   sortKey="prestation"
                   sortConfig={sortConfig}
@@ -3341,7 +3369,7 @@ function OpportunitiesQuickTable({
             <tbody>
               {rows.length === 0 ? (
                 <tr>
-                  <td className="px-4 py-8 text-slate-400" colSpan={8}>
+                  <td className="px-4 py-8 text-slate-400" colSpan={9}>
                     Aucune opportunité.
                   </td>
                 </tr>
@@ -3356,6 +3384,11 @@ function OpportunitiesQuickTable({
                       style={getOpportunityRowColors(row)}
                       className="cursor-pointer border-t border-black/5 transition-opacity hover:opacity-90"
                     >
+
+                      <td className="px-4 py-3 font-medium">
+                        {formatValue(row.langues)}
+                      </td>
+
                       <td className="px-4 py-3 font-medium">
                         #{row.id_opportunite}
                       </td>
@@ -3402,10 +3435,6 @@ function OpportunitiesQuickTable({
                         row.marge === ''
                           ? '—'
                           : `${Number(row.marge).toFixed(1)} %`}
-                      </td>
-
-                      <td className="px-4 py-3">
-                        {formatValue(row.langues)}
                       </td>
 
                       <td className="px-4 py-3">

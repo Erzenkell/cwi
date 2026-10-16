@@ -42,15 +42,42 @@ async function accountsView() {
   return query(`
     SELECT
       ${entityMeta('a', a, 'accounts')},
-      ${textExpr('a', a, ['name', 'company', 'account_name'])} AS nom,
-      ${textExpr('a', a, ['category', 'sector', 'industry', 'account_type', 'type'])} AS categorie,
-      ${textExpr('a', a, ['email', 'email_address'])} AS email,
-      ${textExpr('a', a, ['phone', 'toll_free_phone', 'mobile', 'telephone'])} AS telephone,
-      ${textExpr('a', a, ['location', 'city', 'address', 'billing_address'])} AS localisation,
-      ${rawExpr('a', a, ['rating', 'score'], 'NULL')} AS note
+      ${textExpr(
+        'a',
+        a,
+        ['name', 'company', 'account_name', 'company_name']
+      )} AS nom,
+
+      ${textExpr(
+        'a',
+        a,
+        ['category', 'sector', 'industry', 'account_type', 'type']
+      )} AS categorie,
+
+      ${textExpr(
+        'a',
+        a,
+        ['email', 'email_address']
+      )} AS email,
+
+      ${textExpr(
+        'a',
+        a,
+        ['phone', 'toll_free_phone', 'mobile', 'telephone']
+      )} AS telephone,
+
+      ${textExpr(
+        'a',
+        a,
+        ['location', 'city', 'address', 'billing_address']
+      )} AS localisation
+
     FROM accounts a
+
     ${whereNotDeleted('a', a)}
+
     ${orderBy('a', a)}
+
     LIMIT 50
   `);
 }
@@ -172,17 +199,18 @@ async function opportunitiesView() {
     hasColumn(o, 'subcontract_unit_price')
       ? `
         CASE
-          WHEN COALESCE(o.unit_price, 0) = 0
+          WHEN COALESCE(o.unit_price::numeric, 0) = 0
             THEN NULL
+
           ELSE ROUND(
             (
               (
-                o.unit_price
-                - COALESCE(o.subcontract_unit_price, 0)
+                o.unit_price::numeric
+                - COALESCE(o.subcontract_unit_price, 0)::numeric
               )
-              / NULLIF(o.unit_price, 0)
+              / NULLIF(o.unit_price::numeric, 0)
               * 100
-            )::numeric,
+            ),
             2
           )
         END
@@ -390,7 +418,7 @@ async function invoicesView() {
 
   const referenceExpr =
     invoiceYear && invoiceNumber
-      ? `CONCAT(COALESCE(ai.${invoiceYear}::text, '—'), '-', COALESCE(ai.${invoiceNumber}::text, ai.id::text))`
+      ? `CASE WHEN ai.${invoiceNumber}::text ~ '^[0-9]{4}-[0-9]+$' THEN ai.${invoiceNumber}::text ELSE CONCAT(COALESCE(ai.${invoiceYear}::text, '—'), '-', COALESCE(ai.${invoiceNumber}::text, ai.id::text)) END`
       : textExpr('ai', ai, ['invoice_number', 'number', 'reference', 'id']);
 
   const statusExpr = paidColumn

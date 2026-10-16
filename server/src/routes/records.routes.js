@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { authenticate } from '../auth.js';
-import { query } from '../db.js';
+import { pool, query } from '../db.js';
+import { nextInvoiceNumber } from '../modules/invoices/invoice-number.service.js';
 import crypto from 'crypto';
 
 import { createAuditLog } from '../audit.js';
@@ -194,6 +195,239 @@ function normalizeValue(value) {
   return value;
 }
 
+function splitClientName(fullName) {
+  const parts = String(fullName || '')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+
+  if (parts.length === 0) {
+    return {
+      firstName: '',
+      lastName: '',
+    };
+  }
+
+  if (parts.length === 1) {
+    return {
+      firstName: parts[0],
+      lastName: '',
+    };
+  }
+
+  return {
+    firstName: parts[0],
+    lastName: parts.slice(1).join(' '),
+  };
+}
+
+async function createPrimaryContactForAccount(
+  req,
+  accountId,
+  clientName,
+  companyName
+) {
+  const cleanName = String(clientName || '').trim();
+
+  if (!accountId || !cleanName) {
+    return null;
+  }
+
+  if (
+    !(await hasTable('contacts')) ||
+    !(await hasTable('account_contacts'))
+  ) {
+    return null;
+  }
+
+  const contactColumns = await getColumns('contacts');
+
+  const contactColumnNames = contactColumns.map(
+    (column) => column.column_name
+  );
+
+  const {
+    firstName,
+    lastName,
+  } = splitClientName(cleanName);
+
+  const contactPayload = {};
+
+  if (contactColumnNames.includes('first_name')) {
+    contactPayload.first_name = firstName;
+  }
+
+  if (contactColumnNames.includes('last_name')) {
+    contactPayload.last_name = lastName;
+  }
+
+  /*
+   * Certaines versions du dump peuvent avoir
+   * une seule colonne name/full_name.
+   */
+  if (
+    !contactColumnNames.includes('first_name') &&
+    !contactColumnNames.includes('last_name')
+  ) {
+    if (contactColumnNames.includes('name')) {
+      contactPayload.name = cleanName;
+    } else if (contactColumnNames.includes('full_name')) {
+      contactPayload.full_name = cleanName;
+    }
+  }
+
+  if (
+    companyName &&
+    contactColumnNames.includes('company')
+  ) {
+    contactPayload.company = companyName;
+  }
+
+  const contactWithDefaults = await applyCreateDefaults(
+    'contacts',
+    contactPayload,
+    contactColumnNames,
+    req
+  );
+
+  const forbiddenColumns = new Set([
+    'id',
+    'created_at',
+    'updated_at',
+    'deleted_at',
+    'password',
+    'password_hash',
+    'encrypted_password',
+    'reset_password_token',
+    'remember_token',
+    'confirmation_token',
+  ]);
+
+  const entries = Object.entries(contactWithDefaults)
+    .filter(([key]) =>
+      contactColumnNames.includes(key)
+    )
+    .filter(([key]) =>
+      !forbiddenColumns.has(key)
+    )
+    .filter(([, value]) =>
+      !isEmptyCreateValue(value)
+    );
+
+  if (entries.length === 0) {
+    return null;
+  }
+
+  const insertColumns =
+    entries.map(([key]) => key);
+
+  const placeholders =
+    entries.map(
+      (_, index) => `$${index + 1}`
+    );
+
+  const values =
+    entries.map(
+      ([, value]) => normalizeValue(value)
+    );
+
+  const contactResult = await query(
+    `
+    INSERT INTO contacts (
+      ${insertColumns.join(', ')}
+    )
+    VALUES (
+      ${placeholders.join(', ')}
+    )
+    RETURNING *
+    `,
+    values
+  );
+
+  const contact = contactResult.rows[0];
+
+  if (!contact?.id) {
+    return null;
+  }
+
+  /*
+   * Création de la relation compte/contact.
+   */
+  const relationColumns =
+    await getColumns('account_contacts');
+
+  const relationColumnNames =
+    relationColumns.map(
+      (column) => column.column_name
+    );
+
+  if (
+    !relationColumnNames.includes('account_id') ||
+    !relationColumnNames.includes('contact_id')
+  ) {
+    return contact.id;
+  }
+
+  const relationPayload =
+    await applyCreateDefaults(
+      'account_contacts',
+      {
+        account_id: accountId,
+        contact_id: contact.id,
+      },
+      relationColumnNames,
+      req
+    );
+
+  const relationEntries =
+    Object.entries(relationPayload)
+      .filter(([key]) =>
+        relationColumnNames.includes(key)
+      )
+      .filter(([key]) =>
+        key !== 'id'
+      )
+      .filter(([, value]) =>
+        !isEmptyCreateValue(value)
+      );
+
+  const relationInsertColumns =
+    relationEntries.map(([key]) => key);
+
+  const relationPlaceholders =
+    relationEntries.map(
+      (_, index) => `$${index + 1}`
+    );
+
+  const relationValues =
+    relationEntries.map(
+      ([, value]) => normalizeValue(value)
+    );
+
+  await query(
+    `
+    INSERT INTO account_contacts (
+      ${relationInsertColumns.join(', ')}
+    )
+    VALUES (
+      ${relationPlaceholders.join(', ')}
+    )
+    `,
+    relationValues
+  );
+
+  await createAuditLog({
+    req,
+    action: 'create',
+    entity: 'contacts',
+    entityId: contact.id,
+    beforeData: null,
+    afterData: contact,
+  });
+
+  return contact.id;
+}
+
 router.get('/options/users', async (_req, res) => {
   try {
     const tableExists = await hasTable('users');
@@ -339,6 +573,7 @@ router.patch('/:entity/:id', async (req, res) => {
 
     const forbiddenColumns = new Set([
       'id',
+      'lead_id',
       'created_at',
       'updated_at',
       'deleted_at',
@@ -413,6 +648,7 @@ router.patch('/:entity/:id', async (req, res) => {
 });
 
 router.post('/:entity', async (req, res) => {
+  let invoiceClient;
   try {
     const tableName = resolveTable(req.params.entity);
 
@@ -422,6 +658,30 @@ router.post('/:entity', async (req, res) => {
 
     const columns = await getColumns(tableName);
     const columnNames = columns.map((c) => c.column_name);
+
+    const accountClientName =
+      tableName === 'accounts'
+        ? String(
+            req.body?._client_name || ''
+          ).trim()
+        : '';
+
+    const accountCompanyName =
+      tableName === 'accounts'
+        ? String(
+            req.body?._company_name || ''
+          ).trim()
+        : '';
+
+    if (
+      tableName === 'accounts' &&
+      (!accountClientName || !accountCompanyName)
+    ) {
+      return res.status(400).json({
+        message:
+          'Le nom client et le nom de l’entreprise sont obligatoires.',
+      });
+    }
 
     const forbiddenColumns = new Set([
       'id',
@@ -446,12 +706,82 @@ router.post('/:entity', async (req, res) => {
       rawPayload[key] = normalizeValue(value);
     }
 
+    /*
+    * Transformation du champ frontend
+    * "_company_name" vers une vraie colonne PostgreSQL.
+    */
+    if (
+      tableName === 'accounts' &&
+      accountCompanyName
+    ) {
+      const companyColumn = [
+        'name',
+        'company',
+        'account_name',
+        'company_name',
+      ].find((column) =>
+        columnNames.includes(column)
+      );
+
+      if (!companyColumn) {
+        return res.status(400).json({
+          message:
+            "Impossible d'enregistrer le nom de l’entreprise : aucune colonne compatible dans accounts.",
+        });
+      }
+
+      rawPayload[companyColumn] =
+        accountCompanyName;
+    }
+
     const payload = await applyCreateDefaults(
       tableName,
       rawPayload,
       columnNames,
       req
     );
+
+    if (tableName === 'abstract_invoices' || tableName === 'invoices') {
+      invoiceClient = await pool.connect();
+      await invoiceClient.query('BEGIN');
+      if (tableName === 'invoices') {
+        payload.invoice_number = await nextInvoiceNumber(invoiceClient);
+      } else {
+        // Serialize numbering with insertion, including concurrent creations.
+        await invoiceClient.query('LOCK TABLE abstract_invoices IN EXCLUSIVE MODE');
+        const year = Number(new Intl.DateTimeFormat('en', {
+          year: 'numeric', timeZone: 'Europe/Paris',
+        }).format(new Date()));
+        const numberColumn = ['invoice_number', 'number', 'reference']
+          .find((name) => columnNames.includes(name));
+        const yearColumn = ['invoice_year', 'year']
+          .find((name) => columnNames.includes(name));
+        if (!numberColumn) throw new Error('Colonne de reference de facture introuvable');
+        const numericColumn = columns.some((column) =>
+          column.column_name === numberColumn &&
+          ['smallint', 'integer', 'bigint', 'numeric'].includes(column.data_type)
+        );
+        if (numericColumn && !yearColumn) {
+          throw new Error('Colonne annee de facture introuvable');
+        }
+        const result = await invoiceClient.query(`
+          SELECT COALESCE(MAX(
+            CASE
+              WHEN ${numberColumn}::text ~ '^[0-9]+$'
+                ${yearColumn ? `AND ${yearColumn}::text = $1` : 'AND FALSE'}
+                THEN ${numberColumn}::text::bigint
+              WHEN ${numberColumn}::text ~ ('^' || $1 || '-[0-9]+$')
+                THEN split_part(${numberColumn}::text, '-', 2)::bigint
+              ELSE 0
+            END
+          ), 0) + 1 AS next_number
+          FROM abstract_invoices
+        `, [String(year)]);
+        const next = result.rows[0].next_number;
+        payload[numberColumn] = numericColumn ? next : `${year}-${next}`;
+        if (yearColumn) payload[yearColumn] = year;
+      }
+    }
 
     const entries = Object.entries(payload)
       .filter(([key]) => columnNames.includes(key))
@@ -462,7 +792,7 @@ router.post('/:entity', async (req, res) => {
     const placeholders = entries.map((_, index) => `$${index + 1}`);
     const values = entries.map(([, value]) => normalizeValue(value));
 
-    const result = await query(
+    const result = await (invoiceClient || { query }).query(
       `
       INSERT INTO ${tableName} (${insertColumns.join(', ')})
       VALUES (${placeholders.join(', ')})
@@ -470,6 +800,8 @@ router.post('/:entity', async (req, res) => {
       `,
       values
     );
+
+    if (invoiceClient) await invoiceClient.query('COMMIT');
 
     await createAuditLog({
       req,
@@ -480,14 +812,37 @@ router.post('/:entity', async (req, res) => {
       afterData: result.rows[0],
     });
 
+    let primaryContactId = null;
+
+    if (
+      tableName === 'accounts' &&
+      accountClientName
+    ) {
+      primaryContactId =
+        await createPrimaryContactForAccount(
+          req,
+          result.rows[0]?.id,
+          accountClientName,
+          accountCompanyName
+        );
+    }
+
     res.status(201).json({
       table: tableName,
       columns,
       record: result.rows[0],
+      ...(primaryContactId
+        ? {
+            primaryContactId,
+          }
+        : {}),
     });
   } catch (err) {
+    if (invoiceClient) await invoiceClient.query('ROLLBACK');
     console.error(err);
     res.status(500).json({ message: err.message || 'Erreur création enregistrement' });
+  } finally {
+    invoiceClient?.release();
   }
 });
 

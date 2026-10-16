@@ -351,6 +351,9 @@ function shouldShowColumnInModal(
   columnName: string
 ) {
   if (payload.mode === 'create') {
+    if (payload.table === 'opportunities' && columnName === 'account_id') return false;
+    if (['abstract_invoices', 'invoices'].includes(payload.table) &&
+        ['account_id', 'customer_id', 'client_id', 'account_name', 'customer_name', 'client', 'client_name'].includes(columnName)) return false;
     if (['abstract_invoices', 'invoices'].includes(payload.table) &&
         ['invoice_number', 'number', 'reference', 'invoice_year', 'year'].includes(columnName)) {
       return false;
@@ -2661,6 +2664,8 @@ function EditRecordModal({
   const [userOptions, setUserOptions] = useState<UserOption[]>([]);
   const [selectedLanguages, setSelectedLanguages] = useState<string[]>([]);
   const [customLanguage, setCustomLanguage] = useState('');
+  const [accountOptions, setAccountOptions] = useState<{ id: string | number; label: string }[]>([]);
+  const [accountOptionsError, setAccountOptionsError] = useState<string | null>(null);
 
   useEffect(() => {
     setForm(payload.record);
@@ -2692,6 +2697,26 @@ function EditRecordModal({
         setUserOptions([]);
       });
   }, [payload.columns, token]);
+
+  useEffect(() => {
+    if (!['opportunities', 'abstract_invoices', 'invoices'].includes(payload.table) || payload.mode !== 'create') return;
+    const controller = new AbortController();
+    setAccountOptionsError(null);
+    fetch(`${API_URL}/records/options/accounts`, {
+      credentials: 'include',
+      headers: { Authorization: `Bearer ${token}` },
+      signal: controller.signal,
+    })
+      .then((res) => {
+        if (!res.ok) throw new Error('Impossible de charger les comptes');
+        return res.json();
+      })
+      .then((data) => setAccountOptions(data.accounts || []))
+      .catch((err) => {
+        if (err.name !== 'AbortError') setAccountOptionsError(err.message);
+      });
+    return () => controller.abort();
+  }, [payload.table, payload.mode, token]);
 
   const opportunityMargin = useMemo(() => {
     if (payload.table !== 'opportunities') {
@@ -2789,6 +2814,26 @@ function EditRecordModal({
               <span className="font-semibold text-[#2F2F2F]">
                 #{payload.record.id}
               </span>
+            </div>
+          ) : null}
+
+          {['opportunities', 'abstract_invoices', 'invoices'].includes(payload.table) && payload.mode === 'create' ? (
+            <div className="mb-5">
+              <label htmlFor="record-account" className="mb-2 block text-sm font-medium text-[#4E4E4E]">
+                {payload.table === 'opportunities' ? 'Compte' : 'Client (compte)'}
+              </label>
+              <select
+                id="record-account"
+                value={form._account_id ?? ''}
+                onChange={(event) => setForm({ ...form, _account_id: event.target.value })}
+                className="w-full rounded-2xl border border-[#E8E3DF] bg-white px-4 py-3 text-sm outline-none focus:border-[#8B0E3F]"
+              >
+                <option value="">Aucun compte</option>
+                {accountOptions.map((account) => (
+                  <option key={account.id} value={account.id}>{account.label}</option>
+                ))}
+              </select>
+              {accountOptionsError ? <p className="mt-2 text-sm text-rose-700">{accountOptionsError}</p> : null}
             </div>
           ) : null}
 

@@ -428,6 +428,25 @@ async function createPrimaryContactForAccount(
   return contact.id;
 }
 
+router.get('/options/accounts', async (_req, res) => {
+  try {
+    const columns = await getColumns('accounts');
+    const names = columns.map((column) => column.column_name);
+    const labelColumns = ['name', 'company', 'account_name', 'company_name']
+      .filter((name) => names.includes(name));
+    const labels = labelColumns.map((name) => `NULLIF(${name}::text, '')`);
+    const result = await query(`
+      SELECT id, COALESCE(${[...labels, 'id::text'].join(', ')}) AS label
+      FROM accounts
+      ${names.includes('deleted_at') ? 'WHERE deleted_at IS NULL' : ''}
+      ORDER BY label ASC
+    `);
+    res.json({ accounts: result.rows });
+  } catch (err) {
+    res.status(500).json({ message: err.message || 'Erreur chargement comptes' });
+  }
+});
+
 router.get('/options/users', async (_req, res) => {
   try {
     const tableExists = await hasTable('users');
@@ -648,7 +667,7 @@ router.patch('/:entity/:id', async (req, res) => {
 });
 
 router.post('/:entity', async (req, res) => {
-  let invoiceClient;
+  let transactionClient;
   try {
     const tableName = resolveTable(req.params.entity);
 
@@ -742,13 +761,13 @@ router.post('/:entity', async (req, res) => {
     );
 
     if (tableName === 'abstract_invoices' || tableName === 'invoices') {
-      invoiceClient = await pool.connect();
-      await invoiceClient.query('BEGIN');
+      transactionClient = await pool.connect();
+      await transactionClient.query('BEGIN');
       if (tableName === 'invoices') {
-        payload.invoice_number = await nextInvoiceNumber(invoiceClient);
+        payload.invoice_number = await nextInvoiceNumber(transactionClient);
       } else {
         // Serialize numbering with insertion, including concurrent creations.
-        await invoiceClient.query('LOCK TABLE abstract_invoices IN EXCLUSIVE MODE');
+        await transactionClient.query('LOCK TABLE abstract_invoices IN EXCLUSIVE MODE');
         const year = Number(new Intl.DateTimeFormat('en', {
           year: 'numeric', timeZone: 'Europe/Paris',
         }).format(new Date()));
@@ -764,7 +783,7 @@ router.post('/:entity', async (req, res) => {
         if (numericColumn && !yearColumn) {
           throw new Error('Colonne annee de facture introuvable');
         }
-        const result = await invoiceClient.query(`
+        const result = await transactionClient.query(`
           SELECT COALESCE(MAX(
             CASE
               WHEN ${numberColumn}::text ~ '^[0-9]+$'
@@ -783,6 +802,51 @@ router.post('/:entity', async (req, res) => {
       }
     }
 
+    if (['abstract_invoices', 'invoices'].includes(tableName) &&
+        !isEmptyCreateValue(req.body?._account_id)) {
+      const accountColumns = await getColumns('accounts');
+      const accountResult = await transactionClient.query(`
+        SELECT * FROM accounts WHERE id = $1
+        ${hasDbColumn(accountColumns, 'deleted_at') ? 'AND deleted_at IS NULL' : ''}
+      `, [req.body._account_id]);
+      const account = accountResult.rows[0];
+      if (!account) throw new Error('Compte introuvable');
+      const accountIdColumn = ['account_id', 'customer_id', 'client_id']
+        .find((name) => columnNames.includes(name));
+      const clientNameColumn = ['account_name', 'customer_name', 'client', 'client_name']
+        .find((name) => columnNames.includes(name));
+      if (!accountIdColumn && !clientNameColumn) {
+        throw new Error('Association facture/compte indisponible');
+      }
+      if (accountIdColumn) payload[accountIdColumn] = account.id;
+      if (clientNameColumn) {
+        payload[clientNameColumn] = ['name', 'company', 'account_name', 'company_name']
+          .map((name) => account[name]).find((value) => value != null && String(value).trim())
+          || String(account.id);
+      }
+    }
+
+    const opportunityAccountId = tableName === 'opportunities'
+      ? req.body?._account_id : null;
+    let opportunityRelation = null;
+    if (!isEmptyCreateValue(opportunityAccountId)) {
+      const relationColumns = await getColumns('account_opportunities');
+      const relationNames = relationColumns.map((column) => column.column_name);
+      if (!relationNames.includes('account_id') || !relationNames.includes('opportunity_id')) {
+        throw new Error('Association compte/opportunite indisponible');
+      }
+      const accountColumns = await getColumns('accounts');
+      const account = await query(`SELECT id FROM accounts WHERE id = $1
+        ${hasDbColumn(accountColumns, 'deleted_at') ? 'AND deleted_at IS NULL' : ''}`,
+        [opportunityAccountId]);
+      if (!account.rows.length) throw new Error('Compte introuvable');
+      opportunityRelation = await applyCreateDefaults('account_opportunities',
+        { account_id: opportunityAccountId }, relationNames, req);
+      transactionClient = await pool.connect();
+      await transactionClient.query('BEGIN');
+      if (columnNames.includes('account_id')) payload.account_id = opportunityAccountId;
+    }
+
     const entries = Object.entries(payload)
       .filter(([key]) => columnNames.includes(key))
       .filter(([key]) => !forbiddenColumns.has(key))
@@ -792,7 +856,7 @@ router.post('/:entity', async (req, res) => {
     const placeholders = entries.map((_, index) => `$${index + 1}`);
     const values = entries.map(([, value]) => normalizeValue(value));
 
-    const result = await (invoiceClient || { query }).query(
+    const result = await (transactionClient || { query }).query(
       `
       INSERT INTO ${tableName} (${insertColumns.join(', ')})
       VALUES (${placeholders.join(', ')})
@@ -801,7 +865,17 @@ router.post('/:entity', async (req, res) => {
       values
     );
 
-    if (invoiceClient) await invoiceClient.query('COMMIT');
+    if (opportunityRelation) {
+      opportunityRelation.opportunity_id = result.rows[0].id;
+      const relationEntries = Object.entries(opportunityRelation)
+        .filter(([, value]) => !isEmptyCreateValue(value));
+      await transactionClient.query(`
+        INSERT INTO account_opportunities (${relationEntries.map(([key]) => key).join(', ')})
+        VALUES (${relationEntries.map((_, index) => `$${index + 1}`).join(', ')})
+      `, relationEntries.map(([, value]) => value));
+    }
+
+    if (transactionClient) await transactionClient.query('COMMIT');
 
     await createAuditLog({
       req,
@@ -838,11 +912,11 @@ router.post('/:entity', async (req, res) => {
         : {}),
     });
   } catch (err) {
-    if (invoiceClient) await invoiceClient.query('ROLLBACK');
+    if (transactionClient) await transactionClient.query('ROLLBACK');
     console.error(err);
     res.status(500).json({ message: err.message || 'Erreur création enregistrement' });
   } finally {
-    invoiceClient?.release();
+    transactionClient?.release();
   }
 });
 

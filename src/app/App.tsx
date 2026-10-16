@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type ComponentType, type ReactNode, type FormEvent } from 'react';
+import { getFieldLabel } from './lib/fieldLabels';
 import {
   Bell,
   BriefcaseBusiness,
@@ -2999,7 +3000,7 @@ function EditRecordModal({
                       className="flex items-center justify-between rounded-2xl border border-[#E8E3DF] p-4"
                     >
                       <div>
-                        <div className="font-medium text-[#2F2F2F]">{name}</div>
+                        <div className="font-medium text-[#2F2F2F]">{getFieldLabel(name)}</div>
                         <div className="text-xs text-[#8A8582]">{column.data_type}</div>
                       </div>
 
@@ -3017,7 +3018,7 @@ function EditRecordModal({
                   return (
                     <div key={name} className="md:col-span-2">
                       <label className="mb-2 block text-sm font-medium text-[#4E4E4E]">
-                        {name}
+                        {getFieldLabel(name)}
                         <span className="ml-2 text-xs font-normal text-[#8A8582]">
                           {column.data_type}
                         </span>
@@ -3040,7 +3041,7 @@ function EditRecordModal({
                 return (
                   <div key={name}>
                     <label className="mb-2 block text-sm font-medium text-[#4E4E4E]">
-                      {name}
+                      {getFieldLabel(name)}
                       <span className="ml-2 text-xs font-normal text-[#8A8582]">
                         {column.data_type}
                       </span>

@@ -292,127 +292,48 @@ const CREATE_HIDDEN_FIELDS = new Set([
   'lock_version',
 ]);
 
+// Source fields for the values displayed in each view.
+// Margin uses both prices; languages and account identity have dedicated controls.
 const CREATE_VISIBLE_FIELDS: Record<string, string[]> = {
   leads: [
-    'first_name',
-    'last_name',
-    'company',
-    'title',
-    'source',
-    'email',
-    'alt_email',
-    'phone',
-    'mobile',
-    'linkedin',
-    'website',
-    'description',
-    'notes',
-    'assigned_to',
+    'first_name', 'last_name', 'company', 'source', 'email', 'phone', 'rating', 'score',
   ],
-
   contacts: [
-    'first_name',
-    'last_name',
-    'company',
-    'title',
-    'department',
-    'email',
-    'alt_email',
-    'phone',
-    'mobile',
-    'linkedin',
-    'address',
-    'city',
-    'country',
-    'assigned_to',
+    'first_name', 'last_name', 'name', 'account_id',
+    'email', 'alt_email', 'email_address',
+    'phone', 'mobile', 'alt_phone', 'telephone',
+    'title', 'job_title', 'role', 'department', 'position',
+    'location', 'city', 'address',
   ],
-
   accounts: [
-    'name',
-    'company',
-    'company_name',
-    'account_name',
-    'email',
-    'phone',
-    'toll_free_phone',
-    'website',
-    'address',
-    'city',
-    'country',
-    'assigned_to',
+    'name', 'company', 'company_name', 'account_name',
+    'category', 'sector', 'industry', 'account_type', 'type',
+    'email', 'email_address', 'phone', 'toll_free_phone', 'mobile', 'telephone',
+    'location', 'city', 'address', 'billing_address',
   ],
-
   opportunities: [
-    'name',
-    'subject',
-    'amount',
-    'budget',
-    'stage',
-    'probability',
-    'unit_price',
-    'subcontract_unit_price',
-    'in_date',
-    'out_date',
-    'task_type',
-    'service_type',
-    'description',
-    'notes',
-    'assigned_to',
+    'campaign_id', 'name', 'label', 'title', 'subject', 'account_id',
+    'amount', 'value', 'value_eur', 'revenue', 'budget', 'stage',
+    'unit_price', 'subcontract_unit_price',
+    'task_type', 'service_type', 'type', 'category',
   ],
-
   suppliers: [
-    'first_name',
-    'last_name',
-    'name',
-    'company',
-    'email',
-    'phone',
-    'mobile',
-    'specialty',
-    'speciality',
-    'skills',
-    'address',
-    'city',
-    'country',
+    'first_name', 'last_name', 'name', 'company', 'company_name', 'business_name',
+    'email', 'alt_email', 'email_address', 'phone', 'alt_phone', 'mobile', 'telephone',
+    'location', 'city', 'address', 'country',
+    'specialty', 'speciality', 'skills', 'service_type',
   ],
-
   subcontractors: [
-    'first_name',
-    'last_name',
-    'name',
-    'company',
-    'email',
-    'phone',
-    'mobile',
-    'specialty',
-    'speciality',
-    'skills',
-    'address',
-    'city',
-    'country',
+    'first_name', 'last_name', 'name', 'company', 'company_name', 'business_name',
+    'email', 'alt_email', 'email_address', 'phone', 'alt_phone', 'mobile', 'telephone',
+    'location', 'city', 'address', 'country',
+    'specialty', 'speciality', 'skills', 'service_type',
   ],
-
   abstract_invoices: [
-    'account_id',
-    'invoice_number',
-    'amount',
-    'vat',
-    'due_date',
-    'sent_date',
-    'payment_date',
-    'paid',
-    'description',
-    'notes',
+    'account_id', 'invoice_number', 'amount', 'vat', 'sent_date', 'payment_date', 'paid',
   ],
-
   invoices: [
-    'customer_name',
-    'customer_siret',
-    'customer_address',
-    'issue_date',
-    'due_date',
-    'total_ttc',
-    'notes',
+    'customer_name', 'invoice_number', 'total_ttc', 'vat', 'sent_date', 'payment_date', 'paid',
   ],
 };
 
@@ -429,6 +350,13 @@ function shouldShowColumnInModal(
   payload: RecordModalPayload,
   columnName: string
 ) {
+  if (payload.mode === 'create') {
+    const visibleFields = CREATE_VISIBLE_FIELDS[payload.table];
+    if (visibleFields && !visibleFields.includes(columnName)) {
+      return false;
+    }
+  }
+
   if (TECHNICAL_FIELDS.has(columnName)) {
     return false;
   }
@@ -549,16 +477,10 @@ function buildCreateInitialRecord(
     initialRecord.date = today;
   }
 
-  const visibleFields = CREATE_VISIBLE_FIELDS[table];
-
   for (const column of columns) {
     const name = column.column_name;
 
     if (!shouldShowColumnInModal({ mode: 'create', table, columns, record: initialRecord }, name)) {
-      continue;
-    }
-
-    if (visibleFields && !visibleFields.includes(name)) {
       continue;
     }
 

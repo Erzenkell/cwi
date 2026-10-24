@@ -185,6 +185,10 @@ async function opportunitiesView() {
     ? `o.${deliveryDateColumn} AS _delivery_date`
     : `NULL AS _delivery_date`;
 
+  const createdDateExpr = hasColumn(o, 'created_at')
+    ? 'o.created_at AS _created_at'
+    : 'NULL AS _created_at';
+
   /*
    * Marge :
    *
@@ -194,21 +198,26 @@ async function opportunitiesView() {
    * marge % =
    * ((prix vendu - coût) / prix vendu) * 100
    */
+  const sellingPriceColumn = firstColumn(o, ['unit_price']);
+  const subcontractPriceColumn = firstColumn(o, [
+    'subcontractant_unit_price',
+    'subcontract_unit_price',
+  ]);
+
   const marginExpr =
-    hasColumn(o, 'unit_price') &&
-    hasColumn(o, 'subcontract_unit_price')
+    sellingPriceColumn && subcontractPriceColumn
       ? `
         CASE
-          WHEN COALESCE(o.unit_price::numeric, 0) = 0
+          WHEN COALESCE(o.${sellingPriceColumn}::numeric, 0) = 0
             THEN NULL
 
           ELSE ROUND(
             (
               (
-                o.unit_price::numeric
-                - COALESCE(o.subcontract_unit_price, 0)::numeric
+                o.${sellingPriceColumn}::numeric
+                - COALESCE(o.${subcontractPriceColumn}, 0)::numeric
               )
-              / NULLIF(o.unit_price::numeric, 0)
+              / NULLIF(o.${sellingPriceColumn}::numeric, 0)
               * 100
             ),
             2
@@ -270,6 +279,7 @@ async function opportunitiesView() {
 
       ${stageColumnExpr},
       ${deliveryDateExpr},
+      ${createdDateExpr},
 
       o.id AS id_opportunite,
 

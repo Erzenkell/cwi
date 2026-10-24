@@ -10,6 +10,7 @@
 
 # testing
 /coverage
+/server/sotrage/*
 
 # production
 /build

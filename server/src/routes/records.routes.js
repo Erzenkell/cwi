@@ -447,6 +447,47 @@ router.get('/options/accounts', async (_req, res) => {
   }
 });
 
+router.get('/options/suppliers', async (_req, res) => {
+  try {
+    const tableName = (await hasTable('suppliers'))
+      ? 'suppliers'
+      : (await hasTable('subcontractors'))
+        ? 'subcontractors'
+        : null;
+
+    if (!tableName) return res.json({ suppliers: [] });
+
+    const columns = await getColumns(tableName);
+    const names = columns.map((column) => column.column_name);
+    const firstName = names.includes('first_name') ? "COALESCE(first_name::text, '')" : "''";
+    const lastName = names.includes('last_name') ? "COALESCE(last_name::text, '')" : "''";
+    const name = names.includes('name') ? "NULLIF(name::text, '')" : 'NULL';
+    const company = names.includes('company') ? "NULLIF(company::text, '')" : 'NULL';
+    const optional = (column, fallback = 'NULL') => names.includes(column) ? column : fallback;
+
+    const result = await query(`
+      SELECT
+        id,
+        COALESCE(
+          NULLIF(TRIM(CONCAT(${firstName}, ' ', ${lastName})), ''),
+          ${name},
+          ${company},
+          id::text
+        ) AS label,
+        ${optional('language_pairs', "''::text")} AS language_pairs,
+        ${optional('word_rate', 'NULL::numeric')} AS word_rate,
+        ${optional('flat_rate', 'NULL::numeric')} AS flat_rate
+      FROM ${tableName}
+      ${names.includes('deleted_at') ? 'WHERE deleted_at IS NULL' : ''}
+      ORDER BY label ASC
+    `);
+
+    res.json({ suppliers: result.rows });
+  } catch (err) {
+    res.status(500).json({ message: err.message || 'Erreur chargement prestataires' });
+  }
+});
+
 router.get('/options/users', async (_req, res) => {
   try {
     const tableExists = await hasTable('users');
@@ -751,6 +792,14 @@ router.post('/:entity', async (req, res) => {
 
       rawPayload[companyColumn] =
         accountCompanyName;
+    }
+
+    if (tableName === 'opportunities' && !isEmptyCreateValue(rawPayload.word_count)) {
+      const wordCount = Number(rawPayload.word_count);
+      if (!Number.isSafeInteger(wordCount) || wordCount < 0) {
+        return res.status(400).json({ message: 'Le nombre de mots doit etre un entier positif ou nul.' });
+      }
+      rawPayload.word_count = wordCount;
     }
 
     const payload = await applyCreateDefaults(

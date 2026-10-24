@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ComponentType, type ReactNode, type FormEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type ComponentType, type ReactNode, type FormEvent } from 'react';
 import { getFieldLabel } from './lib/fieldLabels';
 import {
   Bell,
@@ -71,6 +71,7 @@ type OpportunityRow = EntityRow & {
 
   _stage_column?: string | null;
   _delivery_date?: string | null;
+  _created_at?: string | null;
 
   id_opportunite: number;
   campaign_id: number | null;
@@ -82,6 +83,14 @@ type OpportunityRow = EntityRow & {
   marge: number | string | null;
   langues: string;
   prestation: string;
+};
+
+type SupplierOption = {
+  id: number;
+  label: string;
+  language_pairs?: string | null;
+  word_rate?: number | string | null;
+  flat_rate?: number | string | null;
 };
 
 type UserOption = {
@@ -170,10 +179,11 @@ const tabMeta: Record<Tab, { title: string; subtitle: string; columns: string[] 
     columns: [
       'Langues',
       'ID',
-      'Campaign ID',
       'Opportunité',
       'Compte',
       'Montant',
+      'Livraison',
+      'Création',
       'Étape',
       'Marge',
       'Prestation',
@@ -292,8 +302,6 @@ const CREATE_HIDDEN_FIELDS = new Set([
   'lock_version',
 ]);
 
-// Source fields for the values displayed in each view.
-// Margin uses both prices; languages and account identity have dedicated controls.
 const CREATE_VISIBLE_FIELDS: Record<string, string[]> = {
   leads: [
     'first_name', 'last_name', 'company', 'source', 'email', 'phone', 'rating', 'score',
@@ -307,27 +315,29 @@ const CREATE_VISIBLE_FIELDS: Record<string, string[]> = {
   ],
   accounts: [
     'name', 'company', 'company_name', 'account_name',
-    'category', 'sector', 'industry', 'account_type', 'type',
+    'sector', 'industry', 'account_type', 'type',
     'email', 'email_address', 'phone', 'toll_free_phone', 'mobile', 'telephone',
     'location', 'city', 'address', 'billing_address',
   ],
   opportunities: [
-    'campaign_id', 'name', 'label', 'title', 'subject', 'account_id',
+    'word_count', 'name', 'label', 'title', 'subject', 'account_id',
     'amount', 'value', 'value_eur', 'revenue', 'budget', 'stage',
     'unit_price', 'subcontract_unit_price',
-    'task_type', 'service_type', 'type', 'category',
+    'task_type', 'service_type', 'type', 'category', 'out_date',
   ],
   suppliers: [
     'first_name', 'last_name', 'name', 'company', 'company_name', 'business_name',
     'email', 'alt_email', 'email_address', 'phone', 'alt_phone', 'mobile', 'telephone',
     'location', 'city', 'address', 'country',
     'specialty', 'speciality', 'skills', 'service_type',
+    'language_pairs', 'word_rate', 'flat_rate',
   ],
   subcontractors: [
     'first_name', 'last_name', 'name', 'company', 'company_name', 'business_name',
     'email', 'alt_email', 'email_address', 'phone', 'alt_phone', 'mobile', 'telephone',
     'location', 'city', 'address', 'country',
     'specialty', 'speciality', 'skills', 'service_type',
+    'language_pairs', 'word_rate', 'flat_rate',
   ],
   abstract_invoices: [
     'account_id', 'invoice_number', 'amount', 'vat', 'sent_date', 'payment_date', 'paid',
@@ -2666,11 +2676,15 @@ function EditRecordModal({
   const [customLanguage, setCustomLanguage] = useState('');
   const [accountOptions, setAccountOptions] = useState<{ id: string | number; label: string }[]>([]);
   const [accountOptionsError, setAccountOptionsError] = useState<string | null>(null);
+  const [supplierOptions, setSupplierOptions] = useState<SupplierOption[]>([]);
+  const [selectedSupplierId, setSelectedSupplierId] = useState('');
+  const [supplierOptionsError, setSupplierOptionsError] = useState<string | null>(null);
 
   useEffect(() => {
     setForm(payload.record);
     setSelectedLanguages([]);
     setCustomLanguage('');
+    setSelectedSupplierId('');
   }, [payload.record, payload.table, payload.mode]);
 
   useEffect(() => {
@@ -2718,13 +2732,79 @@ function EditRecordModal({
     return () => controller.abort();
   }, [payload.table, payload.mode, token]);
 
+  useEffect(() => {
+    if (payload.table !== 'opportunities' || payload.mode !== 'create') return;
+    const controller = new AbortController();
+    setSupplierOptionsError(null);
+    fetch(`${API_URL}/records/options/suppliers`, {
+      credentials: 'include',
+      headers: { Authorization: `Bearer ${token}` },
+      signal: controller.signal,
+    })
+      .then((res) => {
+        if (!res.ok) throw new Error('Impossible de charger les prestataires');
+        return res.json();
+      })
+      .then((data) => setSupplierOptions(data.suppliers || []))
+      .catch((err) => {
+        if (err.name !== 'AbortError') setSupplierOptionsError(err.message);
+      });
+    return () => controller.abort();
+  }, [payload.table, payload.mode, token]);
+
+  const compatibleSupplierOptions = useMemo(() => {
+    if (selectedLanguages.length === 0) return supplierOptions;
+    const normalizePair = (value: string) => value.toUpperCase().replace(/\s+/g, '').replace(/→|=>|\//g, '>');
+    return supplierOptions.filter((supplier) => {
+      const configured = String(supplier.language_pairs || '')
+        .split(/[,;\n]+/)
+        .map(normalizePair)
+        .filter(Boolean);
+      return configured.length === 0 || selectedLanguages.every((pair) => configured.includes(normalizePair(pair)));
+    });
+  }, [supplierOptions, selectedLanguages]);
+
+  function selectSupplier(id: string) {
+    setSelectedSupplierId(id);
+    const supplier = supplierOptions.find((item) => String(item.id) === id);
+    if (!supplier) return;
+
+    const words = Math.max(0, Number(form.word_count) || 0);
+    const rate = Math.max(0, Number(supplier.word_rate) || 0);
+    const flatRate = Math.max(0, Number(supplier.flat_rate) || 0);
+    setForm((current) => ({
+      ...current,
+      subcontractant: supplier.label,
+      stwc1: words,
+      subcontractant_unit_price: rate,
+      subcontractant_forfait: flatRate || '',
+      subcontractant_total: flatRate || words * rate,
+    }));
+  }
+
+  useEffect(() => {
+    if (!selectedSupplierId) return;
+    const supplier = supplierOptions.find((item) => String(item.id) === selectedSupplierId);
+    if (!supplier) return;
+    const words = Math.max(0, Number(form.word_count) || 0);
+    const rate = Math.max(0, Number(supplier.word_rate) || 0);
+    const flatRate = Math.max(0, Number(supplier.flat_rate) || 0);
+    setForm((current) => ({
+      ...current,
+      stwc1: words,
+      subcontractant_total: flatRate || words * rate,
+    }));
+  }, [form.word_count, selectedSupplierId, supplierOptions]);
+
   const opportunityMargin = useMemo(() => {
     if (payload.table !== 'opportunities') {
       return null;
     }
 
     const sellingPrice = Number(form.unit_price);
-    const subcontractPrice = Number(form.subcontract_unit_price);
+    const subcontractPrice = Number(
+      form.subcontractant_unit_price ?? form.subcontract_unit_price
+    );
 
     if (!Number.isFinite(sellingPrice) || sellingPrice <= 0) {
       return null;
@@ -2738,6 +2818,7 @@ function EditRecordModal({
   }, [
     payload.table,
     form.unit_price,
+    form.subcontractant_unit_price,
     form.subcontract_unit_price,
   ]);
 
@@ -2924,6 +3005,37 @@ function EditRecordModal({
             </div>
           ) : null}
 
+          {payload.table === 'opportunities' && payload.mode === 'create' ? (
+            <div className="mb-5 rounded-3xl border border-[#E8E3DF] bg-white p-5">
+              <label htmlFor="record-supplier" className="mb-2 block text-sm font-medium text-[#4E4E4E]">
+                Prestataire
+              </label>
+              <select
+                id="record-supplier"
+                value={selectedSupplierId}
+                onChange={(event) => selectSupplier(event.target.value)}
+                className="w-full rounded-2xl border border-[#E8E3DF] bg-white px-4 py-3 text-sm outline-none focus:border-[#8B0E3F]"
+              >
+                <option value="">Aucun prestataire</option>
+                {compatibleSupplierOptions.map((supplier) => (
+                  <option key={supplier.id} value={supplier.id}>{supplier.label}</option>
+                ))}
+              </select>
+              {supplierOptionsError ? <p className="mt-2 text-sm text-rose-700">{supplierOptionsError}</p> : null}
+              {selectedLanguages.length > 0 && compatibleSupplierOptions.length === 0 ? (
+                <p className="mt-2 text-sm text-amber-700">Aucun prestataire n’est relié à toutes les paires sélectionnées.</p>
+              ) : null}
+              {selectedSupplierId ? (
+                <div className="mt-3 grid gap-2 text-sm text-[#4E4E4E] sm:grid-cols-4">
+                  <span>Nom : {form.subcontractant || '—'}</span>
+                  <span>Mots : {form.stwc1 || 0}</span>
+                  <span>Forfait : {form.subcontractant_forfait || '—'}</span>
+                  <span>Total : {Number(form.subcontractant_total || 0).toFixed(2)} €</span>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
           <div className="grid gap-4 md:grid-cols-2">
             {payload.columns
               .filter((column) => shouldShowColumnInModal(payload, column.column_name))
@@ -3021,6 +3133,8 @@ function EditRecordModal({
 
                     <input
                       type={inputTypeFromPgType(column.data_type)}
+                      min={payload.table === 'opportunities' && name === 'word_count' ? 0 : undefined}
+                      step={payload.table === 'opportunities' && name === 'word_count' ? 1 : undefined}
                       value={normalizeInputValue(value)}
                       disabled={readOnly}
                       onChange={(e) => setForm({ ...form, [name]: e.target.value })}
@@ -3159,17 +3273,19 @@ function isToday(value?: string | null) {
   );
 }
 
+function formatOpportunityDate(value?: string | null) {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '—';
+  return new Intl.DateTimeFormat('fr-FR', {
+    day: '2-digit', month: '2-digit', year: 'numeric',
+  }).format(date);
+}
+
 function getOpportunityRowColors(row: OpportunityRow) {
   const stage = normalizeOpportunityStage(row.etape);
 
-  if (
-    (
-      stage === 'livraison' ||
-      stage === 'livre' ||
-      stage === 'livree'
-    ) &&
-    isToday(row._delivery_date)
-  ) {
+  if (isToday(row._delivery_date)) {
     return {
       backgroundColor: '#9C3200',
       color: '#FFFFFF',
@@ -3256,6 +3372,7 @@ function OpportunitiesQuickTable({
 }) {
   const [savingRowId, setSavingRowId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const clickTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const {
     sortedRows,
@@ -3301,6 +3418,17 @@ function OpportunitiesQuickTable({
     }
   }
 
+  function openOnSingleClick(row: OpportunityRow) {
+    if (clickTimer.current) clearTimeout(clickTimer.current);
+    clickTimer.current = setTimeout(() => onRowClick(row), 220);
+  }
+
+  function deliverOnDoubleClick(row: OpportunityRow) {
+    if (clickTimer.current) clearTimeout(clickTimer.current);
+    clickTimer.current = null;
+    void quickUpdateStage(row, 'Livrée');
+  }
+
   return (
     <div className="space-y-4">
       {error ? (
@@ -3328,12 +3456,6 @@ function OpportunitiesQuickTable({
                   onSort={requestSort}
                 />
 
-                <SortableHeader
-                  label="Campaign ID"
-                  sortKey="campaign_id"
-                  sortConfig={sortConfig}
-                  onSort={requestSort}
-                />
 
                 <SortableHeader
                   label="Opportunité"
@@ -3352,6 +3474,20 @@ function OpportunitiesQuickTable({
                 <SortableHeader
                   label="Montant"
                   sortKey="montant"
+                  sortConfig={sortConfig}
+                  onSort={requestSort}
+                />
+
+                <SortableHeader
+                  label="Livraison"
+                  sortKey="_delivery_date"
+                  sortConfig={sortConfig}
+                  onSort={requestSort}
+                />
+
+                <SortableHeader
+                  label="Création"
+                  sortKey="_created_at"
                   sortConfig={sortConfig}
                   onSort={requestSort}
                 />
@@ -3382,7 +3518,7 @@ function OpportunitiesQuickTable({
             <tbody>
               {rows.length === 0 ? (
                 <tr>
-                  <td className="px-4 py-8 text-slate-400" colSpan={9}>
+                  <td className="px-4 py-8 text-slate-400" colSpan={10}>
                     Aucune opportunité.
                   </td>
                 </tr>
@@ -3393,7 +3529,9 @@ function OpportunitiesQuickTable({
                   return (
                     <tr
                       key={row._id}
-                      onClick={() => onRowClick(row)}
+                      onClick={() => openOnSingleClick(row)}
+                      onDoubleClick={() => deliverOnDoubleClick(row)}
+                      title="Double-cliquer pour marquer comme livrée"
                       style={getOpportunityRowColors(row)}
                       className="cursor-pointer border-t border-black/5 transition-opacity hover:opacity-90"
                     >
@@ -3406,9 +3544,6 @@ function OpportunitiesQuickTable({
                         #{row.id_opportunite}
                       </td>
 
-                      <td className="px-4 py-3">
-                        {row.campaign_id ? `#${row.campaign_id}` : '—'}
-                      </td>
 
                       <td className="px-4 py-3">
                         {formatValue(row.opportunite)}
@@ -3420,6 +3555,14 @@ function OpportunitiesQuickTable({
 
                       <td className="px-4 py-3">
                         {formatValue(row.montant)}
+                      </td>
+
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        {formatOpportunityDate(row._delivery_date)}
+                      </td>
+
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        {formatOpportunityDate(row._created_at)}
                       </td>
 
                       <td className="px-4 py-3">

@@ -1157,7 +1157,7 @@ function Panel({
   onRowClick: (row: EntityRow) => void;
   authToken: string;
   onRefresh: () => Promise<void>;
-  onGenerateInvoice: (row: InvoiceRow) => void;
+  onGenerateInvoice: (rows: InvoiceRow[]) => void;
 }) {
   if (activeTab === 'SYNTHÈSE') {
     return (
@@ -1740,16 +1740,45 @@ function InvoicesQuickTable({
   rows: InvoiceRow[];
   token: string;
   onSaved: () => Promise<void> | void;
-  onGenerateInvoice: (row: InvoiceRow) => void;
+  onGenerateInvoice: (rows: InvoiceRow[]) => void;
 }) {
   const [savingRowId, setSavingRowId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
 
   const {
     sortedRows,
     sortConfig,
     requestSort,
   } = useSortableRows(rows);
+
+  const selectedRows = rows.filter((row) => selectedIds.has(row._id));
+  const selectedClients = new Set(
+    selectedRows.map((row) => String(row.client || '').trim().toLocaleLowerCase('fr'))
+  );
+  const canGroup = selectedRows.length > 0 && selectedClients.size <= 1;
+
+  useEffect(() => {
+    const availableIds = new Set(rows.map((row) => row._id));
+    setSelectedIds((current) => new Set([...current].filter((id) => availableIds.has(id))));
+  }, [rows]);
+
+  function toggleRow(id: number) {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleAll() {
+    setSelectedIds((current) =>
+      current.size === rows.length
+        ? new Set()
+        : new Set(rows.map((row) => row._id))
+    );
+  }
 
   async function quickUpdateInvoice(
     row: InvoiceRow,
@@ -1812,11 +1841,36 @@ function InvoicesQuickTable({
         </div>
       ) : null}
 
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3">
+        <span className="text-sm text-slate-600">
+          {selectedRows.length} ligne{selectedRows.length > 1 ? 's' : ''} sélectionnée{selectedRows.length > 1 ? 's' : ''}
+        </span>
+        <button
+          type="button"
+          disabled={!canGroup}
+          onClick={() => onGenerateInvoice(selectedRows)}
+          className="rounded-xl bg-[#8B0E3F] px-4 py-2 text-sm font-medium text-white hover:bg-[#6f0b32] disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          Générer une facture groupée
+        </button>
+        {selectedRows.length > 0 && selectedClients.size > 1 ? (
+          <span className="w-full text-sm text-amber-700">Les lignes sélectionnées doivent appartenir au même client.</span>
+        ) : null}
+      </div>
+
       <div className="overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-sm">
         <div className="overflow-x-auto">
           <table className="min-w-full text-left text-sm">
             <thead className="bg-slate-50 text-slate-500">
               <tr>
+                <th className="px-4 py-3">
+                  <input
+                    type="checkbox"
+                    aria-label="Sélectionner toutes les lignes"
+                    checked={rows.length > 0 && selectedIds.size === rows.length}
+                    onChange={toggleAll}
+                  />
+                </th>
                 <SortableHeader
                   label="Référence"
                   sortKey="reference"
@@ -1875,7 +1929,7 @@ function InvoicesQuickTable({
             <tbody>
               {rows.length === 0 ? (
                 <tr>
-                  <td className="px-4 py-8 text-slate-400" colSpan={7}>
+                  <td className="px-4 py-8 text-slate-400" colSpan={9}>
                     Aucune facture.
                   </td>
                 </tr>
@@ -1885,6 +1939,14 @@ function InvoicesQuickTable({
 
                   return (
                     <tr key={row._id} className="border-t border-slate-100 text-slate-700">
+                      <td className="px-4 py-3">
+                        <input
+                          type="checkbox"
+                          aria-label={`Sélectionner la ligne ${row.reference}`}
+                          checked={selectedIds.has(row._id)}
+                          onChange={() => toggleRow(row._id)}
+                        />
+                      </td>
                       <td className="px-4 py-3">{formatValue(row.reference)}</td>
                       <td className="px-4 py-3">{formatValue(row.client)}</td>
                       <td className="px-4 py-3">{formatValue(row.montant)}</td>
@@ -1937,7 +1999,7 @@ function InvoicesQuickTable({
 
                       <td className="px-4 py-3">
                         <button
-                          onClick={() => onGenerateInvoice(row)}
+                          onClick={() => onGenerateInvoice([row])}
                           className="rounded-xl bg-[#8B0E3F] px-3 py-2 text-xs font-medium text-white hover:bg-[#6f0b32]"
                         >
                           Générer facture
@@ -1966,16 +2028,17 @@ type InvoiceGenerationLine = {
 };
 
 function InvoiceGenerationModal({
-  invoice,
+  invoices,
   token,
   onClose,
   onGenerated,
 }: {
-  invoice: InvoiceRow;
+  invoices: InvoiceRow[];
   token: string;
   onClose: () => void;
   onGenerated: () => Promise<void> | void;
 }) {
+  const invoice = invoices[0];
   const [saving, setSaving] = useState(false);
   const [einvoiceSaving, setEinvoiceSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1991,17 +2054,17 @@ function InvoiceGenerationModal({
     greeting: 'Madame,',
   });
 
-  const [lines, setLines] = useState<InvoiceGenerationLine[]>([
-    {
-      service_date: '',
-      purchase_order: '',
+  const [lines, setLines] = useState<InvoiceGenerationLine[]>(() =>
+    invoices.map((item) => ({
+      service_date: formatDateForInput(item.date_envoi),
+      purchase_order: item.reference || '',
       prestation: 'Traduction',
-      document_name: '',
+      document_name: item.reference || '',
       requester_name: '',
       language_pair: '',
-      price_ht: Number(String(invoice.montant || '0').replace(/[^\d.,-]/g, '').replace(',', '.')) || 0,
-    },
-  ]);
+      price_ht: Number(String(item.montant || '0').replace(/[^\d.,-]/g, '').replace(',', '.')) || 0,
+    }))
+  );
 
   function updateLine(index: number, patch: Partial<InvoiceGenerationLine>) {
     setLines((current) =>
@@ -3624,7 +3687,7 @@ export default function App() {
   const [quoteInitialValue, setQuoteInitialValue] = useState<QuoteForm>(() => buildDefaultQuoteForm());
   const [quoteGenerating, setQuoteGenerating] = useState(false);
   const [quoteError, setQuoteError] = useState<string | null>(null);
-  const [invoiceToGenerate, setInvoiceToGenerate] = useState<InvoiceRow | null>(null);
+  const [invoicesToGenerate, setInvoicesToGenerate] = useState<InvoiceRow[]>([]);
 
   const opportunityLanguageOptions = useMemo(() => {
     const languages = (payload.opportunities || [])
@@ -4154,7 +4217,7 @@ export default function App() {
                 onRowClick={openRecord}
                 authToken={auth.token}
                 onRefresh={refreshData}
-                onGenerateInvoice={setInvoiceToGenerate}
+                onGenerateInvoice={setInvoicesToGenerate}
               />
             )}
           </div>
@@ -4198,11 +4261,11 @@ export default function App() {
         />
       ) : null}
 
-      {invoiceToGenerate ? (
+      {invoicesToGenerate.length > 0 ? (
         <InvoiceGenerationModal
-          invoice={invoiceToGenerate}
+          invoices={invoicesToGenerate}
           token={auth.token}
-          onClose={() => setInvoiceToGenerate(null)}
+          onClose={() => setInvoicesToGenerate([])}
           onGenerated={refreshData}
         />
       ) : null}

@@ -684,8 +684,26 @@ function buildDefaultQuoteForm(): QuoteForm {
     notes: '',
     lines: [
       {
-        description: 'Traduction',
-        quantity: 1,
+        description: 'Mots nouveaux',
+        quantity: 0,
+        unit_price_ht: 0,
+        vat_rate: 20,
+      },
+      {
+        description: 'Mots approximatifs',
+        quantity: 0,
+        unit_price_ht: 0,
+        vat_rate: 20,
+      },
+      {
+        description: 'Mots exacts',
+        quantity: 0,
+        unit_price_ht: 0,
+        vat_rate: 20,
+      },
+      {
+        description: 'Mots répétés',
+        quantity: 0,
         unit_price_ht: 0,
         vat_rate: 20,
       },
@@ -1246,28 +1264,6 @@ function QuoteModal({
     }));
   }
 
-  function addLine() {
-    setForm((current) => ({
-      ...current,
-      lines: [
-        ...current.lines,
-        {
-          description: '',
-          quantity: 1,
-          unit_price_ht: 0,
-          vat_rate: 20,
-        },
-      ],
-    }));
-  }
-
-  function removeLine(index: number) {
-    setForm((current) => ({
-      ...current,
-      lines: current.lines.filter((_, lineIndex) => lineIndex !== index),
-    }));
-  }
-
   const subtotal = quoteSubtotal(form.lines);
   const vat = quoteVat(form.lines);
   const total = subtotal + vat;
@@ -1406,70 +1402,49 @@ function QuoteModal({
 
             <div className="space-y-5">
               <div className="rounded-3xl border border-[#E8E3DF] bg-white p-5">
-                <div className="flex items-center justify-between gap-3">
-                  <h3 className="font-serif text-xl font-semibold text-[#2F2F2F]">Prestations</h3>
-                  <button
-                    type="button"
-                    onClick={addLine}
-                    className="rounded-2xl border border-[#8B0E3F]/25 px-4 py-2 text-sm font-medium text-[#8B0E3F] hover:bg-[#8B0E3F]/5"
-                  >
-                    Ajouter une ligne
-                  </button>
-                </div>
+                <h3 className="font-serif text-xl font-semibold text-[#2F2F2F]">Prestations</h3>
 
-                <div className="mt-4 space-y-4">
+                <div className="mt-4 overflow-x-auto rounded-2xl border border-[#E8E3DF]">
+                  <div className="grid min-w-[620px] grid-cols-[1.4fr_1fr_1fr_1fr] bg-[#F8F7F6] text-xs font-semibold uppercase tracking-wide text-[#4E4E4E]">
+                    <div className="px-3 py-3">Langue</div>
+                    <div className="px-3 py-3 text-right">Nombre de mots</div>
+                    <div className="px-3 py-3 text-right">Prix au mot</div>
+                    <div className="px-3 py-3 text-right">Total</div>
+                  </div>
                   {form.lines.map((line, index) => (
-                    <div key={index} className="rounded-2xl border border-[#EFEAE6] bg-[#F8F7F6] p-4">
-                      <div className="flex justify-between gap-3">
-                        <label className="text-sm font-medium text-[#4E4E4E]">Ligne {index + 1}</label>
-                        {form.lines.length > 1 ? (
-                          <button
-                            type="button"
-                            onClick={() => removeLine(index)}
-                            className="text-xs font-medium text-rose-600 hover:text-rose-700"
-                          >
-                            Supprimer
-                          </button>
-                        ) : null}
-                      </div>
-
-                      <div className="mt-3 space-y-3">
+                    <div key={index} className="grid min-w-[620px] grid-cols-[1.4fr_1fr_1fr_1fr] items-center border-t border-[#E8E3DF] bg-white">
+                      <div className="p-2">
                         <input
                           value={line.description}
                           onChange={(e) => updateLine(index, { description: e.target.value })}
-                          placeholder="Description"
-                          className="w-full rounded-2xl border border-[#E8E3DF] bg-white px-4 py-3 outline-none focus:border-[#8B0E3F]"
+                          aria-label={`Type de mots ${index + 1}`}
+                          className="w-full rounded-xl border border-[#E8E3DF] px-3 py-2 outline-none focus:border-[#8B0E3F]"
                         />
-
-                        <div className="grid grid-cols-3 gap-3">
-                          <input
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            value={line.quantity}
-                            onChange={(e) => updateLine(index, { quantity: Number(e.target.value) })}
-                            className="w-full rounded-2xl border border-[#E8E3DF] bg-white px-4 py-3 outline-none focus:border-[#8B0E3F]"
-                            placeholder="Qté"
-                          />
-                          <input
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            value={line.unit_price_ht}
-                            onChange={(e) => updateLine(index, { unit_price_ht: Number(e.target.value) })}
-                            className="w-full rounded-2xl border border-[#E8E3DF] bg-white px-4 py-3 outline-none focus:border-[#8B0E3F]"
-                            placeholder="PU HT"
-                          />
-                          <input
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            value={line.vat_rate}
-                            onChange={(e) => updateLine(index, { vat_rate: Number(e.target.value) })}
-                            className="w-full rounded-2xl border border-[#E8E3DF] bg-white px-4 py-3 outline-none focus:border-[#8B0E3F]"
-                            placeholder="TVA %"
-                          />
-                        </div>
+                      </div>
+                      <div className="p-2">
+                        <input
+                          type="number"
+                          min="0"
+                          step="1"
+                          value={line.quantity}
+                          onChange={(e) => updateLine(index, { quantity: Number(e.target.value) })}
+                          aria-label={`Nombre de mots ${index + 1}`}
+                          className="w-full rounded-xl border border-[#E8E3DF] px-3 py-2 text-right outline-none focus:border-[#8B0E3F]"
+                        />
+                      </div>
+                      <div className="p-2">
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.001"
+                          value={line.unit_price_ht}
+                          onChange={(e) => updateLine(index, { unit_price_ht: Number(e.target.value) })}
+                          aria-label={`Prix au mot ${index + 1}`}
+                          className="w-full rounded-xl border border-[#E8E3DF] px-3 py-2 text-right outline-none focus:border-[#8B0E3F]"
+                        />
+                      </div>
+                      <div className="px-3 py-2 text-right font-medium text-[#2F2F2F]">
+                        {formatCurrency(lineTotalHt(line))}
                       </div>
                     </div>
                   ))}

@@ -24,6 +24,7 @@ const BRAND_GREY = '4E4E4E';
 const BRAND_LIGHT = 'F8F7F6';
 const BRAND_BORDER = 'E8E3DF';
 const WHITE = 'FFFFFF';
+const CONTENT_WIDTH = 10100;
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -95,8 +96,10 @@ function getLogoPath() {
     process.env.WORDSINVEST_LOGO_PATH,
     path.resolve(process.cwd(), 'templates', 'wordsinvest-logo.png'),
     path.resolve(process.cwd(), 'server', 'templates', 'wordsinvest-logo.png'),
+    path.resolve(process.cwd(), 'src', 'assets', 'wordsinvest-logo.png'),
     path.resolve(__dirname, '../../templates/wordsinvest-logo.png'),
     path.resolve(__dirname, '../templates/wordsinvest-logo.png'),
+    path.resolve(__dirname, '../../../src/assets/wordsinvest-logo.png'),
   ].filter(Boolean);
 
   return candidates.find((candidate) => fs.existsSync(candidate)) || null;
@@ -134,7 +137,9 @@ function cell(text, options = {}) {
   } = options;
 
   return new TableCell({
-    width: width ? { size: width, type: WidthType.PERCENTAGE } : undefined,
+    width: width
+      ? { size: Math.round((CONTENT_WIDTH * width) / 100), type: WidthType.DXA }
+      : undefined,
     verticalAlign: VerticalAlign.CENTER,
     shading: fill ? { type: ShadingType.CLEAR, fill } : undefined,
     margins: {
@@ -201,18 +206,19 @@ function buildHeader(payload) {
   const quoteNumber = normalizeQuoteNumber(payload.quote_number);
 
   return new Table({
-    width: { size: 100, type: WidthType.PERCENTAGE },
+    width: { size: CONTENT_WIDTH, type: WidthType.DXA },
+    columnWidths: [5454, 4646],
     borders: noBorders(),
     rows: [
       new TableRow({
         children: [
           new TableCell({
-            width: { size: 54, type: WidthType.PERCENTAGE },
+            width: { size: 5454, type: WidthType.DXA },
             borders: noBorders(),
             children: [buildLogoParagraph()],
           }),
           new TableCell({
-            width: { size: 46, type: WidthType.PERCENTAGE },
+            width: { size: 4646, type: WidthType.DXA },
             borders: noBorders(),
             children: [
               labelValue('Date', formatDate(payload.quote_date)),
@@ -236,11 +242,10 @@ function buildLinesTable(lines = []) {
     new TableRow({
       tableHeader: true,
       children: [
-        cell('Prestation', { bold: true, color: BRAND_ANTHRACITE, fill: BRAND_LIGHT, width: 46 }),
-        cell('Qté', { bold: true, color: BRAND_ANTHRACITE, fill: BRAND_LIGHT, width: 12, alignment: AlignmentType.RIGHT }),
-        cell('PU HT', { bold: true, color: BRAND_ANTHRACITE, fill: BRAND_LIGHT, width: 16, alignment: AlignmentType.RIGHT }),
-        cell('TVA', { bold: true, color: BRAND_ANTHRACITE, fill: BRAND_LIGHT, width: 12, alignment: AlignmentType.RIGHT }),
-        cell('Total HT', { bold: true, color: BRAND_ANTHRACITE, fill: BRAND_LIGHT, width: 14, alignment: AlignmentType.RIGHT }),
+        cell('Langue', { bold: true, color: BRAND_ANTHRACITE, fill: BRAND_LIGHT, width: 34 }),
+        cell('Nombre de mots', { bold: true, color: BRAND_ANTHRACITE, fill: BRAND_LIGHT, width: 22, alignment: AlignmentType.RIGHT }),
+        cell('Prix au mot', { bold: true, color: BRAND_ANTHRACITE, fill: BRAND_LIGHT, width: 22, alignment: AlignmentType.RIGHT }),
+        cell('Total', { bold: true, color: BRAND_ANTHRACITE, fill: BRAND_LIGHT, width: 22, alignment: AlignmentType.RIGHT }),
       ],
     }),
     ...lines.map((line) =>
@@ -249,7 +254,6 @@ function buildLinesTable(lines = []) {
           cell(lineDescription(line)),
           cell(String(lineQuantity(line)), { alignment: AlignmentType.RIGHT }),
           cell(formatCurrency(lineUnitPrice(line)), { alignment: AlignmentType.RIGHT }),
-          cell(`${lineVatRate(line)} %`, { alignment: AlignmentType.RIGHT }),
           cell(formatCurrency(lineTotalHt(line)), { alignment: AlignmentType.RIGHT }),
         ],
       }),
@@ -257,7 +261,8 @@ function buildLinesTable(lines = []) {
   ];
 
   return new Table({
-    width: { size: 100, type: WidthType.PERCENTAGE },
+    width: { size: CONTENT_WIDTH, type: WidthType.DXA },
+    columnWidths: [3434, 2222, 2222, 2222],
     borders: tableBorders(),
     rows,
   });
@@ -270,7 +275,8 @@ function buildTotalsTable(lines = []) {
 
   return new Table({
     alignment: AlignmentType.RIGHT,
-    width: { size: 42, type: WidthType.PERCENTAGE },
+    width: { size: 4242, type: WidthType.DXA },
+    columnWidths: [2121, 2121],
     borders: tableBorders(),
     rows: [
       new TableRow({
@@ -320,7 +326,12 @@ function buildFooter() {
 export async function generateQuoteDocx(payload) {
   const lines = Array.isArray(payload.lines) && payload.lines.length > 0
     ? payload.lines
-    : [{ description: 'Traduction', quantity: 1, unit_price_ht: 0, vat_rate: 20 }];
+    : [
+        { description: 'Mots nouveaux', quantity: 0, unit_price_ht: 0, vat_rate: 20 },
+        { description: 'Mots approximatifs', quantity: 0, unit_price_ht: 0, vat_rate: 20 },
+        { description: 'Mots exacts', quantity: 0, unit_price_ht: 0, vat_rate: 20 },
+        { description: 'Mots répétés', quantity: 0, unit_price_ht: 0, vat_rate: 20 },
+      ];
 
   const doc = new Document({
     styles: {

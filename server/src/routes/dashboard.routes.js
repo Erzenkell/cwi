@@ -70,6 +70,71 @@ router.get('/summary', async (_req, res) => {
   }
 });
 
+router.get('/client-revenue', async (req, res) => {
+  try {
+    const tableName = (await hasTable('abstract_invoices')) ? 'abstract_invoices' : ((await hasTable('invoices')) ? 'invoices' : null);
+    if (!tableName) return res.json({ clients: [], total: 0 });
+
+    const invoiceColumns = await getColumns(tableName);
+    const amount = firstColumn(invoiceColumns, ['amount', 'total_ttc', 'total', 'total_amount']);
+    const date = firstColumn(invoiceColumns, ['sent_date', 'sent_at', 'issue_date', 'invoice_date', 'date', 'created_at']);
+    if (!amount || !date) return res.json({ clients: [], total: 0 });
+
+    const startDate = typeof req.query.startDate === 'string' ? req.query.startDate : '';
+    const endDate = typeof req.query.endDate === 'string' ? req.query.endDate : '';
+    const isoDate = /^\d{4}-\d{2}-\d{2}$/;
+    if ((startDate && !isoDate.test(startDate)) || (endDate && !isoDate.test(endDate))) {
+      return res.status(400).json({ message: 'Période invalide.' });
+    }
+    if (startDate && endDate && startDate > endDate) {
+      return res.status(400).json({ message: 'La date de début doit précéder la date de fin.' });
+    }
+
+    const hasAccountsTable = await hasTable('accounts');
+    const accountColumns = hasAccountsTable ? await getColumns('accounts') : new Set();
+    const accountId = firstColumn(invoiceColumns, ['account_id', 'customer_id', 'client_id']);
+    const directName = firstColumn(invoiceColumns, ['account_name', 'customer_name', 'client', 'client_name']);
+    const joinedName = firstColumn(accountColumns, ['name', 'company', 'account_name']);
+    const canJoinAccount = hasAccountsTable && accountId && hasColumn(accountColumns, 'id');
+    const joinedNameExpr = canJoinAccount && joinedName ? `a.${joinedName}::text` : 'NULL';
+    const directNameExpr = directName ? `ai.${directName}::text` : 'NULL';
+    const nameExpr = `COALESCE(NULLIF(TRIM(${directNameExpr}), ''), NULLIF(TRIM(${joinedNameExpr}), ''), 'Client inconnu')`;
+
+    const filters = [];
+    if (hasColumn(invoiceColumns, 'deleted_at')) filters.push('ai.deleted_at IS NULL');
+    const values = [];
+    if (startDate) {
+      values.push(startDate);
+      filters.push(`ai.${date}::date >= $${values.length}::date`);
+    }
+    if (endDate) {
+      values.push(endDate);
+      filters.push(`ai.${date}::date <= $${values.length}::date`);
+    }
+
+    const result = await query(`
+      SELECT
+        ${nameExpr} AS client,
+        ROUND(SUM(COALESCE(ai.${amount}, 0))::numeric, 2) AS revenue
+      FROM ${tableName} ai
+      ${canJoinAccount ? `LEFT JOIN accounts a ON a.id = ai.${accountId}` : ''}
+      ${filters.length ? `WHERE ${filters.join(' AND ')}` : ''}
+      GROUP BY ${nameExpr}
+      ORDER BY SUM(COALESCE(ai.${amount}, 0)) DESC
+    `, values);
+
+    const clients = result.rows.map((row) => ({
+      client: row.client,
+      revenue: Number(row.revenue) || 0,
+    }));
+    const total = clients.reduce((sum, row) => sum + row.revenue, 0);
+
+    res.json({ clients, total });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
 router.get('/top-clients', async (_req, res) => {
   try {
     const tableName = (await hasTable('abstract_invoices')) ? 'abstract_invoices' : ((await hasTable('invoices')) ? 'invoices' : null);

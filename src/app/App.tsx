@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { refreshSession, logout } from './lib/auth';
 import wordsinvestLogo from '../assets/wordsinvest-logo.png';
+import { Bar, CartesianGrid, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 
 type Role = 'employee' | 'admin';
 type EmployeeTab = 'COMPTES' | 'CONTACTS' | 'OPPORTUNITÉS' | 'SOUS-TRAITANT';
@@ -1190,26 +1191,7 @@ function Panel({
 }) {
   if (activeTab === 'SYNTHÈSE') {
     return (
-      <div className="space-y-6">
-        <div className="grid gap-4 md:grid-cols-4">
-          {(payload.summaryCards || []).map((item) => (
-            <KpiCard
-              key={item.label}
-              label={item.label}
-              value={item.value}
-              icon={<ChartNoAxesCombined className="size-4" />}
-            />
-          ))}
-        </div>
-
-        <DataTable
-          columns={tabMeta[activeTab].columns}
-          rows={(payload.summary || []).map((item) => ({
-            indicateur: item.label,
-            valeur: item.value,
-          }))}
-        />
-      </div>
+      <SummaryPanel summaryCards={payload.summaryCards || []} authToken={authToken} />
     );
   }
 
@@ -1243,6 +1225,104 @@ function Panel({
       rows={rows}
       onRowClick={onRowClick}
     />
+  );
+}
+
+type ClientRevenue = { client: string; revenue: number };
+
+function SummaryPanel({ summaryCards, authToken }: { summaryCards: DashboardStats; authToken: string }) {
+  const today = new Date().toISOString().slice(0, 10);
+  const [startDate, setStartDate] = useState(`${today.slice(0, 4)}-01-01`);
+  const [endDate, setEndDate] = useState(today);
+  const [clients, setClients] = useState<ClientRevenue[]>([]);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const [revenueError, setRevenueError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!startDate || !endDate || startDate > endDate) return;
+    const controller = new AbortController();
+    setLoading(true);
+    setRevenueError(null);
+
+    api<{ clients: ClientRevenue[]; total: number }>(
+      `/dashboard/client-revenue?startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}`,
+      { signal: controller.signal },
+      authToken,
+    )
+      .then((data) => {
+        setClients(data.clients || []);
+        setTotal(Number(data.total) || 0);
+      })
+      .catch((err) => {
+        if (err instanceof DOMException && err.name === 'AbortError') return;
+        setRevenueError(err instanceof Error ? err.message : 'Chargement du chiffre d’affaires impossible');
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
+      });
+
+    return () => controller.abort();
+  }, [authToken, startDate, endDate]);
+
+  const chartData = clients.map((row) => ({ ...row, globalRevenue: total }));
+
+  return (
+    <div className="space-y-6">
+      <div className="grid gap-4 md:grid-cols-4">
+        {summaryCards.map((item) => (
+          <KpiCard key={item.label} label={item.label} value={item.value} icon={<ChartNoAxesCombined className="size-4" />} />
+        ))}
+      </div>
+
+      <section className="rounded-3xl border border-[#E8E3DF] bg-[#FFFDFB] p-5 shadow-sm">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <h2 className="font-serif text-2xl font-semibold text-[#2F2F2F]">Chiffre d’affaires par client</h2>
+            <p className="mt-1 text-sm text-[#8A8582]">Comparez chaque client au chiffre d’affaires global de la période.</p>
+          </div>
+          <div className="flex flex-wrap gap-3">
+            <label className="text-sm text-[#6B6764]">Du
+              <input type="date" value={startDate} max={endDate} onChange={(event) => setStartDate(event.target.value)} className="mt-1 block rounded-xl border border-[#E8E3DF] bg-white px-3 py-2 outline-none focus:border-[#8B0E3F]" />
+            </label>
+            <label className="text-sm text-[#6B6764]">Au
+              <input type="date" value={endDate} min={startDate} max={today} onChange={(event) => setEndDate(event.target.value)} className="mt-1 block rounded-xl border border-[#E8E3DF] bg-white px-3 py-2 outline-none focus:border-[#8B0E3F]" />
+            </label>
+          </div>
+        </div>
+
+        <div className="mt-5 rounded-2xl bg-[#F8F7F6] p-4">
+          <div className="text-xs uppercase tracking-[0.16em] text-[#8A8582]">CA global sur la période</div>
+          <div className="mt-1 text-3xl font-semibold text-[#8B0E3F]">{loading ? 'Chargement…' : formatCurrency(total)}</div>
+        </div>
+
+        {revenueError ? <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{revenueError}</div> : null}
+        {!loading && !revenueError && clients.length === 0 ? <div className="py-12 text-center text-sm text-[#8A8582]">Aucune facture sur cette période.</div> : null}
+
+        {clients.length > 0 ? (
+          <>
+            <div className="mt-6 h-[420px] w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <ComposedChart data={chartData} margin={{ top: 15, right: 25, bottom: 75, left: 20 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#E8E3DF" />
+                  <XAxis dataKey="client" angle={-35} textAnchor="end" interval={0} height={90} tick={{ fontSize: 12 }} />
+                  <YAxis tickFormatter={(value) => `${Number(value).toLocaleString('fr-FR')} €`} width={90} />
+                  <Tooltip formatter={(value: number, name: string) => [formatCurrency(Number(value)), name === 'revenue' ? 'CA client' : 'CA global']} />
+                  <Bar dataKey="revenue" name="CA client" fill="#8B0E3F" radius={[7, 7, 0, 0]} />
+                  <Line dataKey="globalRevenue" name="CA global" stroke="#2F2F2F" strokeWidth={2} dot={false} />
+                </ComposedChart>
+              </ResponsiveContainer>
+            </div>
+            <div className="mt-4 overflow-x-auto">
+              <table className="w-full text-left text-sm">
+                <thead><tr className="border-b border-[#E8E3DF] text-[#8A8582]"><th className="px-3 py-3 font-medium">Client</th><th className="px-3 py-3 text-right font-medium">CA</th><th className="px-3 py-3 text-right font-medium">Part du global</th></tr></thead>
+                <tbody>{clients.map((row) => <tr key={row.client} className="border-b border-[#E8E3DF]/70"><td className="px-3 py-3 font-medium">{row.client}</td><td className="px-3 py-3 text-right">{formatCurrency(row.revenue)}</td><td className="px-3 py-3 text-right">{total ? `${((row.revenue / total) * 100).toFixed(1)} %` : '0 %'}</td></tr>)}</tbody>
+              </table>
+            </div>
+          </>
+        ) : null}
+      </section>
+    </div>
   );
 }
 

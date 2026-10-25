@@ -18,9 +18,16 @@ dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 4000;
+const allowedOrigins = (process.env.CORS_ORIGIN || 'http://localhost:5173')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
 
 const corsOptions = {
-  origin: 'http://localhost:5173',
+  origin(origin, callback) {
+    if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
+    return callback(new Error('Origin not allowed by CORS'));
+  },
   credentials: true,
   exposedHeaders: ['Content-Disposition'],
 };
@@ -32,14 +39,12 @@ app.use(express.json());
 app.use(cookieParser());
 
 app.get('/api/health', async (_, res) => {
-  const db = await query('SELECT current_database(), current_user');
-  const leads = await query('SELECT COUNT(*) FROM leads');
-
-  res.json({
-    status: 'ok',
-    db: db.rows[0],
-    leadsCount: leads.rows[0].count,
-  });
+  try {
+    await query('SELECT 1');
+    res.json({ status: 'ok' });
+  } catch (error) {
+    res.status(503).json({ status: 'error', message: 'Database unavailable' });
+  }
 });
 
 app.use('/api/quotes', quotesRoutes);

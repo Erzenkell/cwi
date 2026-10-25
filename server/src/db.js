@@ -15,6 +15,7 @@ dotenv.config({
 const dbConfig = process.env.DATABASE_URL
   ? {
       connectionString: process.env.DATABASE_URL,
+      ...(process.env.DB_SSL === 'true' ? { ssl: { rejectUnauthorized: false } } : {}),
     }
   : {
       host: process.env.DB_HOST || 'localhost',

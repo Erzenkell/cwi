@@ -1,0 +1,11 @@
+.git
+.env*
+!.env.production.example
+node_modules
+server/node_modules
+dist
+coverage
+test-results
+playwright-report
+server/sql
+README.md

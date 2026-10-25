@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "node --watch src/index.js",
     "start": "node src/index.js",
-    "seed": "node src/seed.js"
+    "seed": "node src/seed.js",
+    "seed:production": "node src/seed-production.js"
   },
   "dependencies": {
     "bcryptjs": "^3.0.2",
@@ -18,5 +19,8 @@
     "jsonwebtoken": "^9.0.2",
     "pdfkit": "^0.18.0",
     "pg": "^8.13.1"
+  },
+  "overrides": {
+    "qs": "6.16.1"
   }
 }

@@ -93,6 +93,17 @@ type SupplierOption = {
   flat_rate?: number | string | null;
 };
 
+type SupplierService = {
+  id: number;
+  prestation: string;
+  service_date: string;
+  langue: string;
+  type_prestation: string;
+  role: string;
+  amount_column: string;
+  amount: number | string;
+};
+
 type UserOption = {
   id: number;
   label: string;
@@ -1235,6 +1246,205 @@ function Panel({
   );
 }
 
+
+function SupplierMonthlyServicesModal({
+  supplier,
+  token,
+  onTokenRefresh,
+  onClose,
+  onSaved,
+}: {
+  supplier: EntityRow;
+  token: string;
+  onTokenRefresh: (data: AuthResponse) => void;
+  onClose: () => void;
+  onSaved: () => Promise<void>;
+}) {
+  const [month, setMonth] = useState(() => new Date().toISOString().slice(0, 7));
+  const [services, setServices] = useState<SupplierService[]>([]);
+  const [amounts, setAmounts] = useState<Record<string, string>>({});
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const supplierName = String(supplier.nom || supplier.societe || 'Sous-traitant');
+  const supplierEntity = String(supplier._entity || 'suppliers');
+  const supplierId = Number(supplier._id);
+  const serviceKey = (service: SupplierService) => `${service.id}:${service.amount_column}`;
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadServices() {
+      setLoading(true);
+      setError(null);
+
+      try {
+        const data = await api<{ services: SupplierService[] }>(
+          `/records/supplier-services/${supplierEntity}/${supplierId}?month=${month}`,
+          {},
+          token,
+          onTokenRefresh,
+        );
+
+        if (cancelled) return;
+        setServices(data.services || []);
+        setAmounts(
+          Object.fromEntries(
+            (data.services || []).map((service) => [serviceKey(service), String(service.amount ?? 0)]),
+          ),
+        );
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : 'Chargement des prestations impossible');
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    loadServices();
+    return () => {
+      cancelled = true;
+    };
+  }, [month, supplierEntity, supplierId, token]);
+
+  const total = services.reduce(
+    (sum, service) => sum + (Number(amounts[serviceKey(service)]) || 0),
+    0,
+  );
+
+  async function saveAmounts() {
+    setSaving(true);
+    setError(null);
+
+    try {
+      const changedServices = services.filter(
+        (service) => Number(amounts[serviceKey(service)] || 0) !== Number(service.amount || 0),
+      );
+
+      await Promise.all(
+        changedServices.map((service) =>
+          api(
+            `/records/opportunities/${service.id}`,
+            {
+              method: 'PATCH',
+              body: JSON.stringify({
+                [service.amount_column]: Number(amounts[serviceKey(service)] || 0),
+              }),
+            },
+            token,
+            onTokenRefresh,
+          ),
+        ),
+      );
+
+      setServices((current) =>
+        current.map((service) => ({
+          ...service,
+          amount: Number(amounts[serviceKey(service)] || 0),
+        })),
+      );
+      await onSaved();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Enregistrement des montants impossible');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#2F2F2F]/60 p-4 backdrop-blur-sm">
+      <div className="max-h-[92vh] w-full max-w-6xl overflow-hidden rounded-[28px] bg-[#FFFDFB] shadow-2xl">
+        <div className="flex flex-col gap-4 border-b border-[#E8E3DF] px-6 py-5 md:flex-row md:items-center md:justify-between">
+          <div>
+            <div className="text-xs uppercase tracking-[0.2em] text-[#8A8582]">Prestations mensuelles</div>
+            <h2 className="mt-1 font-serif text-3xl font-semibold text-[#2F2F2F]">{supplierName}</h2>
+          </div>
+          <div className="flex items-center gap-3">
+            <input
+              type="month"
+              value={month}
+              onChange={(event) => setMonth(event.target.value)}
+              className="rounded-xl border border-[#E8E3DF] bg-white px-4 py-2 outline-none focus:border-[#8B0E3F]"
+            />
+            <button onClick={onClose} className="rounded-xl border border-[#E8E3DF] px-4 py-2 text-sm hover:bg-[#F8F7F6]">
+              Fermer
+            </button>
+          </div>
+        </div>
+
+        <div className="max-h-[65vh] overflow-auto p-6">
+          {error ? <div className="mb-4 rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div> : null}
+          {loading ? (
+            <div className="flex items-center justify-center gap-3 py-16 text-[#6B6764]">
+              <RefreshCw className="size-5 animate-spin" /> Chargement des prestations...
+            </div>
+          ) : (
+            <div className="overflow-hidden rounded-2xl border border-[#E8E3DF]">
+              <table className="min-w-full text-left text-sm">
+                <thead className="bg-[#F8F7F6] text-[#6B6764]">
+                  <tr>
+                    <th className="px-4 py-3 font-medium">Date</th>
+                    <th className="px-4 py-3 font-medium">Prestation</th>
+                    <th className="px-4 py-3 font-medium">Langue</th>
+                    <th className="px-4 py-3 font-medium">Rôle</th>
+                    <th className="px-4 py-3 text-right font-medium">Montant sous-traitant</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {services.length === 0 ? (
+                    <tr><td colSpan={5} className="px-4 py-10 text-center text-[#8A8582]">Aucune prestation pour ce mois.</td></tr>
+                  ) : services.map((service) => (
+                    <tr key={serviceKey(service)} className="border-t border-[#E8E3DF]">
+                      <td className="whitespace-nowrap px-4 py-3">{formatDateForInput(service.service_date).split('-').reverse().join('/')}</td>
+                      <td className="px-4 py-3">
+                        <div className="font-medium text-[#2F2F2F]">{service.prestation}</div>
+                        <div className="text-xs text-[#8A8582]">{service.type_prestation}</div>
+                      </td>
+                      <td className="px-4 py-3">{service.langue}</td>
+                      <td className="px-4 py-3">{service.role}</td>
+                      <td className="px-4 py-2">
+                        <div className="flex items-center justify-end gap-2">
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={amounts[serviceKey(service)] ?? ''}
+                            onChange={(event) => setAmounts((current) => ({
+                              ...current,
+                              [serviceKey(service)]: event.target.value,
+                            }))}
+                            className="w-32 rounded-xl border border-[#E8E3DF] px-3 py-2 text-right outline-none focus:border-[#8B0E3F]"
+                          />
+                          <span className="text-[#6B6764]">€</span>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        <div className="flex items-center justify-between border-t border-[#E8E3DF] px-6 py-4">
+          <div className="text-sm text-[#6B6764]">
+            Total du mois : <span className="ml-2 font-serif text-2xl font-semibold text-[#2F2F2F]">{formatCurrency(total)}</span>
+          </div>
+          <button
+            type="button"
+            onClick={saveAmounts}
+            disabled={saving || loading || services.length === 0}
+            className="rounded-2xl bg-[#8B0E3F] px-5 py-3 text-sm font-medium text-white hover:bg-[#A0124D] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {saving ? 'Enregistrement...' : 'Enregistrer les montants'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function QuoteModal({
   initialValue,
@@ -3663,6 +3873,7 @@ export default function App() {
   const [quoteGenerating, setQuoteGenerating] = useState(false);
   const [quoteError, setQuoteError] = useState<string | null>(null);
   const [invoicesToGenerate, setInvoicesToGenerate] = useState<InvoiceRow[]>([]);
+  const [supplierServicesTarget, setSupplierServicesTarget] = useState<EntityRow | null>(null);
 
   const opportunityLanguageOptions = useMemo(() => {
     const languages = (payload.opportunities || [])
@@ -3685,6 +3896,11 @@ export default function App() {
 
     const entity = row._entity;
     const id = row._id;
+
+    if ((entity === 'suppliers' || entity === 'subcontractors') && id) {
+      setSupplierServicesTarget(row);
+      return;
+    }
 
     if (!entity || !id) {
       setError("Impossible d'ouvrir cet élément : identifiant manquant.");
@@ -4209,6 +4425,16 @@ export default function App() {
             setQuoteError(null);
           }}
           onGenerate={handleGenerateQuote}
+        />
+      ) : null}
+
+      {supplierServicesTarget ? (
+        <SupplierMonthlyServicesModal
+          supplier={supplierServicesTarget}
+          token={auth.token}
+          onTokenRefresh={setAuth}
+          onClose={() => setSupplierServicesTarget(null)}
+          onSaved={refreshData}
         />
       ) : null}
 

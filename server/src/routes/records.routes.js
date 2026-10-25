@@ -577,6 +577,107 @@ router.get('/options/users', async (_req, res) => {
   }
 });
 
+router.get('/supplier-services/:entity/:id', async (req, res) => {
+  try {
+    const tableName = req.params.entity === 'suppliers'
+      ? 'suppliers'
+      : req.params.entity === 'subcontractors'
+        ? 'subcontractors'
+        : null;
+
+    if (!tableName || !(await hasTable(tableName)) || !(await hasTable('opportunities'))) {
+      return res.status(400).json({ message: 'Sous-traitant ou prestations indisponibles' });
+    }
+
+    const month = /^\d{4}-\d{2}$/.test(String(req.query.month || ''))
+      ? String(req.query.month)
+      : new Date().toISOString().slice(0, 7);
+    const supplierColumns = await getColumns(tableName);
+    const supplierColumnNames = supplierColumns.map((column) => column.column_name);
+    const optionalText = (column) => supplierColumnNames.includes(column)
+      ? `COALESCE(${column}::text, '')`
+      : `''`;
+
+    const supplierResult = await query(
+      `SELECT *,
+        NULLIF(TRIM(CONCAT(${optionalText('first_name')}, ' ', ${optionalText('last_name')})), '') AS full_name
+       FROM ${tableName}
+       WHERE id = $1
+       LIMIT 1`,
+      [req.params.id]
+    );
+    const supplier = supplierResult.rows[0];
+
+    if (!supplier) {
+      return res.status(404).json({ message: 'Sous-traitant introuvable' });
+    }
+
+    const names = [
+      supplier.full_name,
+      supplier.first_name,
+      supplier.last_name,
+      supplier.name,
+      supplier.company,
+    ]
+      .map((value) => String(value || '').trim().toLowerCase())
+      .filter(Boolean);
+
+    const opportunityColumns = await getColumns('opportunities');
+    const opportunityColumnNames = new Set(opportunityColumns.map((column) => column.column_name));
+    const assignments = [
+      ['subcontractant', 'subcontractant_total', 'Sous-traitant'],
+      ['subcontractant2', 'subcontractant2_total', 'Sous-traitant 2'],
+      ['reader_name', 'reader_total', 'Relecture'],
+    ].filter(([nameColumn, amountColumn]) =>
+      opportunityColumnNames.has(nameColumn) && opportunityColumnNames.has(amountColumn)
+    );
+
+    if (assignments.length === 0 || names.length === 0) {
+      return res.json({ supplier, month, services: [] });
+    }
+
+    const valuesSql = assignments
+      .map(([nameColumn, amountColumn, role]) =>
+        `('${role}', '${amountColumn}', o.${nameColumn}::text, NULLIF(o.${amountColumn}::text, '')::numeric)`
+      )
+      .join(',\n');
+    const dateColumn = opportunityColumnNames.has('out_date')
+      ? 'out_date'
+      : opportunityColumnNames.has('in_date')
+        ? 'in_date'
+        : 'created_at';
+    const serviceName = opportunityColumnNames.has('name') ? 'o.name' : 'o.id::text';
+    const language = opportunityColumnNames.has('languages') ? "COALESCE(o.languages, '—')" : "'—'";
+    const taskType = opportunityColumnNames.has('task_type') ? "COALESCE(o.task_type, '—')" : "'—'";
+
+    const servicesResult = await query(
+      `SELECT
+         o.id,
+         ${serviceName} AS prestation,
+         o.${dateColumn} AS service_date,
+         ${language} AS langue,
+         ${taskType} AS type_prestation,
+         assignment.role,
+         assignment.amount_column,
+         COALESCE(assignment.amount, 0) AS amount
+       FROM opportunities o
+       CROSS JOIN LATERAL (VALUES ${valuesSql})
+         AS assignment(role, amount_column, supplier_name, amount)
+       WHERE LOWER(TRIM(COALESCE(assignment.supplier_name, ''))) = ANY($1::text[])
+         AND o.${dateColumn} >= ($2 || '-01')::date
+         AND o.${dateColumn} < (($2 || '-01')::date + INTERVAL '1 month')
+         ${opportunityColumnNames.has('deleted_at') ? 'AND o.deleted_at IS NULL' : ''}
+       ORDER BY o.${dateColumn} ASC, o.id ASC`,
+      [Array.from(new Set(names)), month]
+    );
+
+    res.json({ supplier, month, services: servicesResult.rows });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: err.message || 'Erreur chargement des prestations' });
+  }
+});
+
 router.get('/:entity/:id', async (req, res) => {
   try {
     const tableName = resolveTable(req.params.entity);

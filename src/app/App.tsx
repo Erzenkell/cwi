@@ -18,6 +18,11 @@ import {
   UserCog,
   Layers3,
   RefreshCw,
+  ArrowRight,
+  Eye,
+  EyeOff,
+  LockKeyhole,
+  Mail,
 } from 'lucide-react';
 import { refreshSession, logout } from './lib/auth';
 import wordsinvestLogo from '../assets/wordsinvest-logo.png';
@@ -811,95 +816,92 @@ function LoginCard({
 }) {
   const [email, setEmail] = useState('employee@crm.local');
   const [password, setPassword] = useState('password123');
+  const [showPassword, setShowPassword] = useState(false);
+
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!loading) onLogin(email, password);
+  }
 
   return (
-    <div className="w-full max-w-6xl overflow-hidden rounded-[34px] border border-[#E8E3DF] bg-[#FFFDFB] shadow-2xl shadow-[#2F2F2F]/10 md:grid md:grid-cols-[1.15fr_0.85fr]">
-      <div className="relative overflow-hidden bg-[#F8F7F6] p-8 text-[#2F2F2F] md:p-10">
-        <div className="absolute -right-16 -top-20 h-72 w-72 rounded-full bg-[#8B0E3F]/10 blur-3xl" />
-        <div className="absolute -bottom-20 -left-16 h-72 w-72 rounded-full bg-[#4E4E4E]/10 blur-3xl" />
+    <div className="relative w-full max-w-5xl overflow-hidden rounded-[28px] border border-white/70 bg-[#FFFDFB] shadow-[0_32px_90px_-32px_rgba(47,47,47,0.35)] md:grid md:min-h-[560px] md:grid-cols-[1.08fr_0.92fr]">
+      <div className="relative flex min-h-52 items-center justify-center overflow-hidden bg-[#F7F3F1] p-8 text-[#2F2F2F] md:min-h-0 md:p-12">
+        <div className="absolute inset-0 bg-[linear-gradient(rgba(139,14,63,0.035)_1px,transparent_1px),linear-gradient(90deg,rgba(139,14,63,0.035)_1px,transparent_1px)] bg-[size:34px_34px]" />
+        <div className="absolute -right-24 -top-24 h-80 w-80 rounded-full bg-[#8B0E3F]/10 blur-[80px]" />
+        <div className="absolute -bottom-28 -left-20 h-80 w-80 rounded-full bg-[#2F2F2F]/10 blur-[90px]" />
+        <div className="absolute right-10 top-10 h-2 w-2 rounded-full bg-[#8B0E3F] md:right-14 md:top-14" />
 
-        <div className="relative">
+        <div className="relative flex w-full justify-center">
           <img
             src={wordsinvestLogo}
             alt="Wordsinvest"
-            className="h-auto w-72 max-w-full object-contain"
+            className="h-auto w-64 max-w-full object-contain drop-shadow-sm md:w-80"
           />
-
-          <div className="mt-10 h-px w-24 bg-[#8B0E3F]" />
-
-          <h1 className="mt-8 max-w-2xl font-serif text-5xl font-semibold leading-tight tracking-[-0.04em] text-[#2F2F2F] md:text-6xl">
-            Un CRM élégant pour piloter vos relations et opportunités.
-          </h1>
-
-          <p className="mt-5 max-w-xl text-base leading-7 text-[#6B6764]">
-            Interface alignée avec l’identité Wordsinvest : bordeaux profond,
-            gris chauds, contraste anthracite et espaces respirants pour une
-            expérience professionnelle et haut de gamme.
-          </p>
-
-          <div className="mt-10 grid gap-4 sm:grid-cols-3">
-            {[
-              ['CRM', 'relation client'],
-              ['Postgres', 'données métier'],
-              ['Node', 'API sécurisée'],
-            ].map(([value, label]) => (
-              <div key={label} className="rounded-3xl border border-[#E8E3DF] bg-white/70 p-5 shadow-sm backdrop-blur">
-                <div className="font-serif text-3xl font-semibold text-[#8B0E3F]">{value}</div>
-                <div className="mt-1 text-xs uppercase tracking-[0.22em] text-[#8A8582]">{label}</div>
-              </div>
-            ))}
-          </div>
         </div>
       </div>
 
-      <div className="flex flex-col justify-between bg-[#2F2F2F] p-8 text-white md:p-10">
-        <div>
-          <div className="text-xs uppercase tracking-[0.28em] text-[#D8C5CE]">Accès sécurisé</div>
-          <h2 className="mt-3 font-serif text-3xl font-semibold tracking-[-0.03em]">Connexion</h2>
-          <p className="mt-3 text-sm leading-6 text-white/65">
-            Connecte-toi pour accéder aux vues, aux données PostgreSQL et aux
-            outils d’administration du CRM.
-          </p>
-        </div>
+      <div className="relative flex items-center bg-[#292929] p-7 text-white sm:p-10 md:p-12">
+        <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/20 to-transparent md:inset-y-0 md:left-0 md:right-auto md:h-auto md:w-px" />
+        <form onSubmit={handleSubmit} className="w-full">
+          <h2 className="font-serif text-[2.15rem] font-semibold leading-none tracking-[-0.04em]">Connexion</h2>
 
-        <div className="mt-8 space-y-4">
+          <div className="mt-10 space-y-5">
           <div>
-            <label className="mb-2 block text-sm text-white/65">Email</label>
-            <input
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-3 text-white outline-none transition placeholder:text-white/35 focus:border-[#C05A83] focus:bg-white/[0.09]"
-            />
+            <label htmlFor="login-email" className="mb-2 block text-[0.8rem] font-medium text-white/60">Email</label>
+            <div className="group relative">
+              <Mail className="pointer-events-none absolute left-4 top-1/2 size-[18px] -translate-y-1/2 text-white/35 transition-colors group-focus-within:text-[#D984A6]" />
+              <input
+                id="login-email"
+                type="email"
+                autoComplete="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="h-14 w-full rounded-xl border border-white/10 bg-white/[0.055] pl-12 pr-4 text-[0.95rem] text-white outline-none transition duration-200 placeholder:text-white/30 hover:border-white/20 focus:border-[#C75B86] focus:bg-white/[0.075] focus:shadow-[0_0_0_4px_rgba(139,14,63,0.18)]"
+              />
+            </div>
           </div>
 
           <div>
-            <label className="mb-2 block text-sm text-white/65">Mot de passe</label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-3 text-white outline-none transition placeholder:text-white/35 focus:border-[#C05A83] focus:bg-white/[0.09]"
-            />
+            <label htmlFor="login-password" className="mb-2 block text-[0.8rem] font-medium text-white/60">Mot de passe</label>
+            <div className="group relative">
+              <LockKeyhole className="pointer-events-none absolute left-4 top-1/2 size-[18px] -translate-y-1/2 text-white/35 transition-colors group-focus-within:text-[#D984A6]" />
+              <input
+                id="login-password"
+                type={showPassword ? 'text' : 'password'}
+                autoComplete="current-password"
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="h-14 w-full rounded-xl border border-white/10 bg-white/[0.055] pl-12 pr-12 text-[0.95rem] text-white outline-none transition duration-200 placeholder:text-white/30 hover:border-white/20 focus:border-[#C75B86] focus:bg-white/[0.075] focus:shadow-[0_0_0_4px_rgba(139,14,63,0.18)]"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword((visible) => !visible)}
+                aria-label={showPassword ? 'Masquer le mot de passe' : 'Afficher le mot de passe'}
+                className="absolute right-2 top-1/2 flex size-10 -translate-y-1/2 items-center justify-center rounded-lg text-white/40 transition hover:bg-white/[0.06] hover:text-white/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C75B86]"
+              >
+                {showPassword ? <EyeOff className="size-[18px]" /> : <Eye className="size-[18px]" />}
+              </button>
+            </div>
           </div>
 
           <button
+            type="submit"
             disabled={loading}
-            onClick={() => onLogin(email, password)}
-            className="w-full rounded-2xl bg-[#8B0E3F] px-5 py-4 font-medium text-white shadow-lg shadow-[#8B0E3F]/20 transition hover:bg-[#A0124D] disabled:cursor-not-allowed disabled:opacity-70"
+            className="group mt-2 flex h-14 w-full items-center justify-center gap-2 rounded-xl bg-[#9C124A] px-5 text-[0.95rem] font-semibold text-white shadow-[0_14px_34px_-14px_rgba(139,14,63,0.9)] transition duration-200 hover:-translate-y-0.5 hover:bg-[#AE1857] hover:shadow-[0_18px_38px_-14px_rgba(139,14,63,0.95)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D984A6] focus-visible:ring-offset-2 focus-visible:ring-offset-[#292929] active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0"
           >
-            {loading ? 'Connexion...' : 'Se connecter'}
+            <span>{loading ? 'Connexion...' : 'Se connecter'}</span>
+            {!loading ? <ArrowRight className="size-[18px] transition-transform group-hover:translate-x-1" /> : null}
           </button>
 
           {error ? (
-            <div className="rounded-2xl border border-[#C05A83]/40 bg-[#8B0E3F]/20 px-4 py-3 text-sm text-[#F6DCE7]">
+            <div role="alert" className="rounded-xl border border-[#C05A83]/35 bg-[#8B0E3F]/20 px-4 py-3 text-sm text-[#F6DCE7]">
               {error}
             </div>
           ) : null}
-        </div>
-
-        <div className="mt-6 rounded-2xl border border-white/10 bg-white/[0.06] p-4 text-sm text-white/70">
-          Démo : employee@crm.local / admin@crm.local — mot de passe : password123
-        </div>
+          </div>
+        </form>
       </div>
     </div>
   );
@@ -4347,8 +4349,10 @@ export default function App() {
 
   if (!auth) {
     return (
-      <main className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(139,14,63,0.16),_transparent_34%),linear-gradient(180deg,_#F8F7F6,_#EFEAE6)] px-4 py-10 md:px-8">
-        <div className="mx-auto flex min-h-[85vh] max-w-7xl items-center justify-center">
+      <main className="relative min-h-screen overflow-hidden bg-[#F3EFEC] px-4 py-8 sm:px-6 md:px-10">
+        <div className="pointer-events-none absolute left-1/2 top-[-28rem] h-[46rem] w-[46rem] -translate-x-1/2 rounded-full bg-[#8B0E3F]/[0.09] blur-[100px]" />
+        <div className="pointer-events-none absolute -bottom-64 -right-44 h-[34rem] w-[34rem] rounded-full bg-white/80 blur-[80px]" />
+        <div className="relative mx-auto flex min-h-[calc(100vh-4rem)] max-w-7xl items-center justify-center">
           <LoginCard onLogin={login} loading={loading} error={error} />
         </div>
       </main>

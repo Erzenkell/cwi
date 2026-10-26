@@ -36,6 +36,8 @@ cp .env.production.example .env.production
 
 Le fichier `.env.production` est ignoré par Git. Ne jamais le committer.
 
+Sur Railway, le service frontend utilise par défaut `API_HOST=api.railway.internal` et `API_PORT=4000`. Si le service API porte un autre nom, définir `API_HOST=<nom-du-service>.railway.internal` dans les variables du frontend.
+
 ### 2. Construction et démarrage
 
 ```bash

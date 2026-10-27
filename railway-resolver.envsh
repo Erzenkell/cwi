@@ -1,11 +1,21 @@
 #!/bin/sh
 
-DNS_RESOLVER="$(awk '/^nameserver[[:space:]]+/ { print $2; exit }' /etc/resolv.conf)"
+RAW_DNS_RESOLVER="$(awk '/^nameserver[[:space:]]+/ { print $2; exit }' /etc/resolv.conf)"
 
-if [ -z "$DNS_RESOLVER" ]; then
+if [ -z "$RAW_DNS_RESOLVER" ]; then
   echo "Unable to determine DNS resolver from /etc/resolv.conf"
   exit 1
 fi
+
+# Nginx exige les resolvers IPv6 entre crochets.
+case "$RAW_DNS_RESOLVER" in
+  *:*)
+    DNS_RESOLVER="[$RAW_DNS_RESOLVER]"
+    ;;
+  *)
+    DNS_RESOLVER="$RAW_DNS_RESOLVER"
+    ;;
+esac
 
 export DNS_RESOLVER
 

@@ -1436,6 +1436,32 @@ function SupplierMonthlyServicesModal({
     }
   }
 
+  async function deleteSupplier() {
+    const confirmed = window.confirm(
+      `Supprimer ${supplierName} ? Cette action retirera ce sous-traitant des listes du CRM.`
+    );
+
+    if (!confirmed) return;
+
+    setSaving(true);
+    setError(null);
+
+    try {
+      await api(
+        `/records/${supplierEntity}/${supplierId}`,
+        { method: 'DELETE' },
+        token,
+        onTokenRefresh,
+      );
+      onClose();
+      await onSaved();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Suppression impossible');
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#2F2F2F]/60 p-4 backdrop-blur-sm">
       <div className="max-h-[92vh] w-full max-w-6xl overflow-hidden rounded-[28px] bg-[#FFFDFB] shadow-2xl">
@@ -1511,7 +1537,16 @@ function SupplierMonthlyServicesModal({
           )}
         </div>
 
-        <div className="flex items-center justify-between border-t border-[#E8E3DF] px-6 py-4">
+        <div className="flex flex-wrap items-center gap-3 border-t border-[#E8E3DF] px-6 py-4">
+          <button
+            type="button"
+            onClick={deleteSupplier}
+            disabled={saving || loading}
+            className="flex items-center gap-2 rounded-2xl border border-rose-200 px-5 py-3 text-sm font-medium text-rose-700 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <Trash2 className="size-4" />
+            Supprimer
+          </button>
           <div className="text-sm text-[#6B6764]">
             Total du mois : <span className="ml-2 font-serif text-2xl font-semibold text-[#2F2F2F]">{formatCurrency(total)}</span>
           </div>
@@ -1519,7 +1554,7 @@ function SupplierMonthlyServicesModal({
             type="button"
             onClick={saveAmounts}
             disabled={saving || loading || services.length === 0}
-            className="rounded-2xl bg-[#8B0E3F] px-5 py-3 text-sm font-medium text-white hover:bg-[#A0124D] disabled:cursor-not-allowed disabled:opacity-50"
+            className="ml-auto rounded-2xl bg-[#8B0E3F] px-5 py-3 text-sm font-medium text-white hover:bg-[#A0124D] disabled:cursor-not-allowed disabled:opacity-50"
           >
             {saving ? 'Enregistrement...' : 'Enregistrer les montants'}
           </button>
@@ -2101,6 +2136,30 @@ function InvoicesQuickTable({
     }
   }
 
+  async function deleteInvoice(row: InvoiceRow) {
+    const confirmed = window.confirm(
+      `Supprimer la facture ${row.reference || `#${row._id}`} ? Cette action la retirera des listes du CRM.`
+    );
+
+    if (!confirmed) return;
+
+    setSavingRowId(row._id);
+    setError(null);
+
+    try {
+      await api(
+        `/records/${row._entity}/${row._id}`,
+        { method: 'DELETE' },
+        token,
+      );
+      await onSaved();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Suppression impossible');
+    } finally {
+      setSavingRowId(null);
+    }
+  }
+
   return (
     <div className="space-y-4">
       {error ? (
@@ -2266,12 +2325,25 @@ function InvoicesQuickTable({
                       </td>
 
                       <td className="px-4 py-3">
-                        <button
-                          onClick={() => onGenerateInvoice([row])}
-                          className="rounded-xl bg-[#8B0E3F] px-3 py-2 text-xs font-medium text-white hover:bg-[#6f0b32]"
-                        >
-                          Générer facture
-                        </button>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => onGenerateInvoice([row])}
+                            disabled={saving}
+                            className="rounded-xl bg-[#8B0E3F] px-3 py-2 text-xs font-medium text-white hover:bg-[#6f0b32] disabled:opacity-50"
+                          >
+                            Générer facture
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => deleteInvoice(row)}
+                            disabled={saving}
+                            aria-label={`Supprimer la facture ${row.reference || row._id}`}
+                            title="Supprimer"
+                            className="rounded-xl border border-rose-200 p-2 text-rose-700 hover:bg-rose-50 disabled:opacity-50"
+                          >
+                            <Trash2 className="size-4" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );

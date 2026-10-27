@@ -57,6 +57,6 @@ app.use('/api/app-users', appUsersRoutes);
 app.use('/api/audit-logs', auditRoutes);
 app.use('/api/invoice-documents', invoiceDocumentsRoutes);
 
-app.listen(PORT, () => {
-  console.log(`CRM API running on http://localhost:${PORT}`);
+app.listen(PORT, '::', () => {
+  console.log(`CRM API running on port ${PORT}`);
 });

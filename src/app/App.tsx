@@ -4087,7 +4087,10 @@ export default function App() {
         setAuth
       );
 
-      setModalPayload(data);
+      setModalPayload({
+        ...data,
+        mode: 'edit',
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Ouverture impossible');
     } finally {

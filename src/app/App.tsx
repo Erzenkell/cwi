@@ -23,6 +23,7 @@ import {
   EyeOff,
   LockKeyhole,
   Mail,
+  Trash2,
 } from 'lucide-react';
 import { refreshSession, logout } from './lib/auth';
 import wordsinvestLogo from '../assets/wordsinvest-logo.png';
@@ -2988,6 +2989,7 @@ function EditRecordModal({
   opportunityLanguageOptions,
   onClose,
   onSave,
+  onDelete,
 }: {
   payload: RecordModalPayload;
   saving: boolean;
@@ -2999,6 +3001,7 @@ function EditRecordModal({
     values: Record<string, any>,
     languages?: string[]
   ) => void;
+  onDelete: () => void;
 }) {
   const [form, setForm] = useState<Record<string, any>>(payload.record);
   const [userOptions, setUserOptions] = useState<UserOption[]>([]);
@@ -3548,7 +3551,19 @@ function EditRecordModal({
           ) : null}
         </div>
 
-        <div className="flex items-center justify-end gap-3 border-t border-[#E8E3DF] px-6 py-4">
+        <div className="flex items-center gap-3 border-t border-[#E8E3DF] px-6 py-4">
+          {payload.mode === 'edit' ? (
+            <button
+              type="button"
+              disabled={saving}
+              onClick={onDelete}
+              className="mr-auto flex items-center gap-2 rounded-2xl border border-rose-200 px-5 py-3 text-sm font-medium text-rose-700 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <Trash2 className="size-4" />
+              Supprimer
+            </button>
+          ) : null}
+
           <button
             onClick={onClose}
             className="rounded-2xl border border-[#E8E3DF] px-5 py-3 text-sm text-[#4E4E4E] hover:bg-[#F8F7F6]"
@@ -4188,6 +4203,37 @@ export default function App() {
     }
   }
 
+  async function deleteRecord() {
+    if (!auth?.token || !modalPayload || modalPayload.mode !== 'edit') return;
+
+    const confirmed = window.confirm(
+      `Supprimer cet enregistrement #${modalPayload.record.id} ? Cette action le retirera des listes du CRM.`
+    );
+
+    if (!confirmed) return;
+
+    setModalSaving(true);
+    setModalError(null);
+
+    try {
+      await api(
+        `/records/${modalPayload.table}/${modalPayload.record.id}`,
+        { method: 'DELETE' },
+        auth.token,
+        setAuth
+      );
+
+      setModalPayload(null);
+      await refreshData();
+    } catch (err) {
+      setModalError(
+        err instanceof Error ? err.message : 'Suppression impossible'
+      );
+    } finally {
+      setModalSaving(false);
+    }
+  }
+
 
   function openQuoteModal() {
     setQuoteInitialValue(buildDefaultQuoteForm());
@@ -4543,6 +4589,7 @@ export default function App() {
             setModalError(null);
           }}
           onSave={saveRecord}
+          onDelete={deleteRecord}
         />
       ) : null}
 

@@ -808,6 +808,63 @@ router.patch('/:entity/:id', async (req, res) => {
   }
 });
 
+router.delete('/:entity/:id', async (req, res) => {
+  try {
+    const tableName = resolveTable(req.params.entity);
+
+    if (!tableName) {
+      return res.status(400).json({ message: 'Table non autorisée' });
+    }
+
+    const columns = await getColumns(tableName);
+    const columnNames = columns.map((column) => column.column_name);
+
+    if (!columnNames.includes('id')) {
+      return res.status(400).json({ message: `La table ${tableName} n'a pas de colonne id` });
+    }
+
+    const beforeResult = await query(
+      `SELECT * FROM ${tableName} WHERE id = $1 LIMIT 1`,
+      [req.params.id]
+    );
+    const beforeData = beforeResult.rows[0];
+
+    if (!beforeData) {
+      return res.status(404).json({ message: 'Enregistrement introuvable' });
+    }
+
+    if (columnNames.includes('deleted_at')) {
+      await query(
+        `UPDATE ${tableName} SET deleted_at = NOW() WHERE id = $1`,
+        [req.params.id]
+      );
+    } else {
+      await query(`DELETE FROM ${tableName} WHERE id = $1`, [req.params.id]);
+    }
+
+    await createAuditLog({
+      req,
+      action: 'delete',
+      entity: tableName,
+      entityId: req.params.id,
+      beforeData,
+      afterData: null,
+    });
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+
+    if (err?.code === '23503') {
+      return res.status(409).json({
+        message: 'Suppression impossible : cet enregistrement est encore utilisé par une autre donnée.',
+      });
+    }
+
+    res.status(500).json({ message: 'Erreur suppression enregistrement' });
+  }
+});
+
 router.post('/:entity', async (req, res) => {
   let transactionClient;
   try {

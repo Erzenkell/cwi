@@ -372,6 +372,7 @@ const OPPORTUNITY_STAGE_OPTIONS = [
   'Livraison',
   'Facturé',
   'Test gratuit',
+  'Livrée',
 ];
 
 function shouldShowColumnInModal(
@@ -3672,6 +3673,16 @@ function normalizeOpportunityStage(value?: string | null) {
     .replace(/[\u0300-\u036f]/g, '');
 }
 
+function canonicalOpportunityStage(value?: string | null) {
+  const stage = normalizeOpportunityStage(value);
+
+  if (stage === 'lance_s_t' || stage === 'lance') return 'Lancé';
+  if (stage === 'facture' || stage === 'facturee') return 'Facturé';
+  if (stage === 'livre' || stage === 'livree') return 'Livrée';
+
+  return String(value || '').trim();
+}
+
 function isToday(value?: string | null) {
   if (!value) return false;
 
@@ -3801,7 +3812,7 @@ function OpportunitiesQuickTable({
     new Set([
       ...OPPORTUNITY_STAGE_OPTIONS,
       ...rows
-        .map((row) => String(row.etape || '').trim())
+        .map((row) => canonicalOpportunityStage(row.etape))
         .filter((value) => value && value !== '—'),
     ])
   );
@@ -3984,7 +3995,7 @@ function OpportunitiesQuickTable({
 
                       <td className="px-4 py-3">
                         <select
-                          value={row.etape || ''}
+                          value={canonicalOpportunityStage(row.etape)}
                           disabled={savingRowId === row._id || !row._stage_column}
                           onClick={(e) => e.stopPropagation()}
                           onChange={(e) =>

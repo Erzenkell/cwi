@@ -174,6 +174,10 @@ function labelValue(label, value) {
   });
 }
 
+function optionalLabelValue(label, value) {
+  return safeText(value) ? [labelValue(label, value)] : [];
+}
+
 function spacer(after = 300) {
   return new Paragraph({ spacing: { after }, children: [] });
 }
@@ -225,10 +229,10 @@ function buildHeader(payload) {
               labelValue('Numéro de devis', quoteNumber),
               spacer(300),
               labelValue('Nom du client', payload.customer_name),
-              labelValue('Adresse', payload.customer_address),
-              labelValue('Code Postal et Ville', payload.customer_postal_city),
-              labelValue('Numéro de téléphone', payload.customer_phone),
-              labelValue('Email', payload.customer_email),
+              ...optionalLabelValue('Adresse', payload.customer_address),
+              ...optionalLabelValue('Code Postal et Ville', payload.customer_postal_city),
+              ...optionalLabelValue('Numéro de téléphone', payload.customer_phone),
+              ...optionalLabelValue('Email', payload.customer_email),
             ],
           }),
         ],
@@ -384,7 +388,7 @@ export async function generateQuoteDocx(payload) {
             children: [
               new TextRun({ text: 'Veuillez trouver ci-dessous le devis pour la traduction de votre document ', size: 23 }),
               new TextRun({ text: safeText(payload.document_name, '—'), italics: true, bold: true, color: BRAND_BORDEAUX, size: 23 }),
-              new TextRun({ text: ' en langue : ', size: 23 }),
+              new TextRun({ text: ' ', size: 23 }),
               new TextRun({ text: safeText(payload.target_language, '—'), italics: true, bold: true, color: BRAND_BORDEAUX, size: 23 }),
             ],
           }),

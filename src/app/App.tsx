@@ -3764,7 +3764,7 @@ function getOpportunityRowColors(row: OpportunityRow) {
     stage === 'livree'
   ) {
     return {
-      backgroundColor: '#9C3200',
+      backgroundColor: '#B163FF',
       color: '#FFFFFF',
     };
   }
